@@ -237,10 +237,11 @@ func (s *ServerStream) sendResultEntry(errorNum uint32, errorStr string, clientI
 
 	entry := ResultEntry{
 		isEntry:  0xff,
-		length:   uint32(len(byteSlice) + 1 + 4 + 4),
+		length:   1 + 4 + 4 + uint32(len(byteSlice)),
 		errorNum: errorNum,
 		errorStr: byteSlice,
 	}
+	PrintResultEntry(entry) // TODO: remove
 
 	// Convert struct to binary bytes
 	binaryEntry := encodeResultEntryToBinary(entry)
@@ -291,10 +292,12 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 }
 
 func PrintResultEntry(e ResultEntry) {
+	fmt.Println("--- RESULT ENTRY -------------------------")
 	fmt.Printf("isEntry: [%d]\n", e.isEntry)
 	fmt.Printf("length: [%d]\n", e.length)
 	fmt.Printf("errorNum: [%d]\n", e.errorNum)
 	fmt.Printf("errorStr: [%s]\n", e.errorStr)
+	fmt.Println("------------------------------------------")
 }
 
 // Internal interface:
@@ -305,6 +308,19 @@ func (s *ServerStream) StartStreamTx() error {
 }
 
 func (s *ServerStream) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
+	e := FileEntry{
+		isEntry:   IEEntry,
+		length:    1 + 4 + 4 + 8 + uint32(len(data)),
+		entryType: etype,
+		entryNum:  s.lastEntry + 1,
+		data:      data,
+	}
+
+	err := s.fs.AddFileEntry(e)
+	if err != nil {
+		return 0, nil
+	}
+
 	s.lastEntry++
 	return s.lastEntry, nil
 }
