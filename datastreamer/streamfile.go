@@ -39,7 +39,7 @@ type FileEntry struct {
 	data      []byte
 }
 
-type FileStream struct {
+type StreamFile struct {
 	fileName   string
 	pageSize   uint32 // in bytes
 	file       *os.File
@@ -52,8 +52,8 @@ type FileStream struct {
 	currentOffset uint64 // Offset of current page to write next entry
 }
 
-func PrepareStreamFile(fn string, st uint64) (FileStream, error) {
-	fs := FileStream{
+func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
+	fs := StreamFile{
 		fileName:   fn,
 		pageSize:   pageSize,
 		file:       nil,
@@ -78,13 +78,13 @@ func PrepareStreamFile(fn string, st uint64) (FileStream, error) {
 	return fs, err
 }
 
-func (f *FileStream) openCreateFile() error {
+func (f *StreamFile) openCreateFile() error {
 	// Check if file exists (otherwise create it)
 	_, err := os.Stat(f.fileName)
 
 	if os.IsNotExist(err) {
 		// File does not exists so create it
-		fmt.Println("Creating file for datastrem:", f.fileName)
+		fmt.Println("Creating file for datastream:", f.fileName)
 		f.file, err = os.Create(f.fileName)
 
 		if err != nil {
@@ -130,7 +130,7 @@ func (f *FileStream) openCreateFile() error {
 	return nil
 }
 
-func (f *FileStream) initializeFile() error {
+func (f *StreamFile) initializeFile() error {
 	// Create the header page
 	err := f.createHeaderPage()
 	if err != nil {
@@ -149,7 +149,7 @@ func (f *FileStream) initializeFile() error {
 	return err
 }
 
-func (f *FileStream) createHeaderPage() error {
+func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
 	err := f.createPage()
 	if err != nil {
@@ -163,7 +163,7 @@ func (f *FileStream) createHeaderPage() error {
 }
 
 // Create/add a new page on the stream file
-func (f *FileStream) createPage() error {
+func (f *StreamFile) createPage() error {
 	page := make([]byte, f.pageSize)
 
 	// Position at the end of the file
@@ -191,7 +191,7 @@ func (f *FileStream) createPage() error {
 	return nil
 }
 
-func (f *FileStream) readHeaderEntry() error {
+func (f *StreamFile) readHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
 		fmt.Println("Error seeking the start of the file:", err)
@@ -227,7 +227,7 @@ func printHeaderEntry(e HeaderEntry) {
 	fmt.Println("------------------------------------------")
 }
 
-func (f *FileStream) writeHeaderEntry() error {
+func (f *StreamFile) writeHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
 		fmt.Println("Error seeking the start of the file:", err)
@@ -287,7 +287,7 @@ func encodeFileEntryToBinary(e FileEntry) []byte {
 	return be
 }
 
-func (f *FileStream) checkFileConsistency() error {
+func (f *StreamFile) checkFileConsistency() error {
 	info, err := os.Stat(f.fileName)
 	if err != nil {
 		fmt.Println("Error checking file consistency")
@@ -306,7 +306,7 @@ func (f *FileStream) checkFileConsistency() error {
 	return nil
 }
 
-func (f *FileStream) checkHeaderConsistency() error {
+func (f *StreamFile) checkHeaderConsistency() error {
 	var err error = nil
 
 	if f.header.packetType != ptSequencer {
@@ -326,6 +326,6 @@ func (f *FileStream) checkHeaderConsistency() error {
 	return err
 }
 
-func (f *FileStream) AddFileEntry(e FileEntry) error {
+func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	return nil
 }
