@@ -162,28 +162,36 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	}
 }
 
-func readFullUint64(reader *bufio.Reader) (uint64, error) {
-	// Read 8 bytes (uint64 value)
-	buffer := make([]byte, 8)
-	n, err := io.ReadFull(reader, buffer)
-	if err != nil {
-		if err == io.EOF {
-			fmt.Println("Client close connection")
-		} else {
-			fmt.Println("Error reading from client:", err)
-		}
-		return 0, err
+func (s *StreamServer) StartStreamTx() error {
+	s.tx.status = txStarted
+	s.tx.afterEntry = s.lastEntry
+	s.fs.StartFileTx()
+	return nil
+}
+
+func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
+	e := FileEntry{
+		isEntry:   IEEntry,
+		length:    1 + 4 + 4 + 8 + uint32(len(data)),
+		entryType: etype,
+		entryNum:  s.lastEntry + 1,
+		data:      data,
 	}
 
-	// Convert bytes to uint64
-	var value uint64
-	err = binary.Read(bytes.NewReader(buffer[:n]), binary.BigEndian, &value)
+	err := s.fs.AddFileEntry(e)
 	if err != nil {
-		fmt.Println("Error converting bytes to uint64")
-		return 0, err
+		return 0, nil
 	}
 
-	return value, nil
+	s.lastEntry++
+	return s.lastEntry, nil
+}
+
+func (s *StreamServer) CommitStreamTx() error {
+	s.tx.status = txCommitting
+	// TODO: work
+	s.tx.status = txNone
+	return nil
 }
 
 func (s *StreamServer) processCommand(command Command, clientId string) error {
@@ -262,35 +270,28 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	return nil
 }
 
-func (s *StreamServer) StartStreamTx() error {
-	s.tx.status = txStarted
-	s.tx.afterEntry = s.lastEntry
-	return nil
-}
-
-func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
-	e := FileEntry{
-		isEntry:   IEEntry,
-		length:    1 + 4 + 4 + 8 + uint32(len(data)),
-		entryType: etype,
-		entryNum:  s.lastEntry + 1,
-		data:      data,
-	}
-
-	err := s.fs.AddFileEntry(e)
+func readFullUint64(reader *bufio.Reader) (uint64, error) {
+	// Read 8 bytes (uint64 value)
+	buffer := make([]byte, 8)
+	n, err := io.ReadFull(reader, buffer)
 	if err != nil {
-		return 0, nil
+		if err == io.EOF {
+			fmt.Println("Client close connection")
+		} else {
+			fmt.Println("Error reading from client:", err)
+		}
+		return 0, err
 	}
 
-	s.lastEntry++
-	return s.lastEntry, nil
-}
+	// Convert bytes to uint64
+	var value uint64
+	err = binary.Read(bytes.NewReader(buffer[:n]), binary.BigEndian, &value)
+	if err != nil {
+		fmt.Println("Error converting bytes to uint64")
+		return 0, err
+	}
 
-func (s *StreamServer) CommitStreamTx() error {
-	s.tx.status = txCommitting
-	// TODO: work
-	s.tx.status = txNone
-	return nil
+	return value, nil
 }
 
 // Encode/convert from an entry type to binary bytes slice
@@ -326,10 +327,9 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 }
 
 func PrintResultEntry(e ResultEntry) {
-	fmt.Println("--- RESULT ENTRY -------------------------")
-	fmt.Printf("isEntry: [%d]\n", e.isEntry)
-	fmt.Printf("length: [%d]\n", e.length)
-	fmt.Printf("errorNum: [%d]\n", e.errorNum)
-	fmt.Printf("errorStr: [%s]\n", e.errorStr)
-	fmt.Println("------------------------------------------")
+	fmt.Println("  --- RESULT ENTRY -------------------------")
+	fmt.Printf("  isEntry: [%d]\n", e.isEntry)
+	fmt.Printf("  length: [%d]\n", e.length)
+	fmt.Printf("  errorNum: [%d]\n", e.errorNum)
+	fmt.Printf("  errorStr: [%s]\n", e.errorStr)
 }
