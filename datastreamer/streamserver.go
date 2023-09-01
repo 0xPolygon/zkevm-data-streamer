@@ -165,7 +165,6 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 func (s *StreamServer) StartStreamTx() error {
 	s.tx.status = txStarted
 	s.tx.afterEntry = s.lastEntry
-	s.fs.StartFileTx()
 	return nil
 }
 
@@ -190,6 +189,11 @@ func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error
 func (s *StreamServer) CommitStreamTx() error {
 	s.tx.status = txCommitting
 	// TODO: work
+	err := s.fs.writeHeaderEntry()
+	if err != nil {
+		return err
+	}
+
 	s.tx.status = txNone
 	return nil
 }

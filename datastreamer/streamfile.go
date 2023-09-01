@@ -47,12 +47,6 @@ type StreamFile struct {
 	streamType uint64
 
 	header HeaderEntry
-
-	totalPages        uint64 // Total number of data pages created in the file
-	currentPage       uint64 // Current number of data page to write next entry
-	currentOffset     uint64 // Offset of current data page to write next entry
-	uncommittedPage   uint64 // Initial uncommitted data page
-	uncommittedOffset uint64 // Offset of initial uncommitted data page
 }
 
 func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
@@ -69,12 +63,6 @@ func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
 			totalLength:  0,
 			totalEntries: 0,
 		},
-
-		totalPages:        0,
-		currentPage:       1,
-		currentOffset:     0,
-		uncommittedPage:   1,
-		uncommittedOffset: 0,
 	}
 
 	// Open (or create) the data stream file
@@ -120,21 +108,13 @@ func (f *StreamFile) openCreateFile() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Number of pages:", f.totalPages)
 
 	// Restore header from the file and check it
 	err = f.readHeaderEntry()
 	if err != nil {
 		return err
 	}
-
 	err = f.checkHeaderConsistency()
-	if err != nil {
-		return err
-	}
-
-	// Calculate current page and offset
-	err = f.calculateCurrentPageOffset()
 	if err != nil {
 		return err
 	}
@@ -151,9 +131,9 @@ func (f *StreamFile) initializeFile() error {
 
 	// Create initial data pages
 	for i := 1; i <= initPages; i++ {
-		err = f.createPage(f.pageSize, true)
+		err = f.createPage(f.pageSize)
 		if err != nil {
-			fmt.Println("Eror creating page:", f.totalPages+1)
+			fmt.Println("Eror creating page")
 			return err
 		}
 	}
@@ -163,7 +143,7 @@ func (f *StreamFile) initializeFile() error {
 
 func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
-	err := f.createPage(pageHeaderSize, false)
+	err := f.createPage(pageHeaderSize)
 	if err != nil {
 		fmt.Println("Error creating the header page:", err)
 		return err
@@ -177,7 +157,7 @@ func (f *StreamFile) createHeaderPage() error {
 }
 
 // Create/add a new page on the stream file
-func (f *StreamFile) createPage(size uint32, isDataPage bool) error {
+func (f *StreamFile) createPage(size uint32) error {
 	page := make([]byte, size)
 
 	// Position at the end of the file
@@ -201,9 +181,6 @@ func (f *StreamFile) createPage(size uint32, isDataPage bool) error {
 		return err
 	}
 
-	if isDataPage {
-		f.totalPages++
-	}
 	return nil
 }
 
@@ -321,8 +298,6 @@ func (f *StreamFile) checkFileConsistency() error {
 		return errors.New("bad file size cut data page")
 	}
 
-	f.totalPages = uint64(dataSize) / uint64(f.pageSize)
-
 	return nil
 }
 
@@ -338,31 +313,14 @@ func (f *StreamFile) checkHeaderConsistency() error {
 	} else if f.header.streamType != f.streamType {
 		fmt.Println("Invalid header: bad stream type")
 		err = errors.New("invalid header bad stream type")
-	} else if f.header.totalLength > f.totalPages*uint64(f.pageSize) {
-		fmt.Println("Invalid header: bad total length")
-		err = errors.New("invalid header bad total length")
 	}
 
 	return err
 }
 
-func (f *StreamFile) calculateCurrentPageOffset() error {
-	// Calculate/restore current page and offset from the header total length
-	dataLength := f.header.totalLength + 1 - pageHeaderSize
-	f.currentPage = dataLength / uint64(f.pageSize)
-	f.currentOffset = dataLength % uint64(f.pageSize)
-
-	if f.currentPage > f.totalPages {
-		fmt.Println("Bad total length in header")
-		return errors.New("bad total length header")
-	}
-	return nil
-}
-
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
-	pos := pageHeaderSize + f.currentPage*uint64(f.pageSize) + f.currentOffset
-	_, err := f.file.Seek(int64(pos), 0)
+	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
 		fmt.Println("Error seeking position to write:", err)
 		return err
@@ -385,15 +343,12 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		return err
 	}
 
-	// Update current offset
-	f.currentOffset = f.currentOffset + uint64(len(be))
+	// Update the header just in memory (on disk when the commit arrives)
+	f.header.totalLength = f.header.totalLength + uint64(len(be))
+	f.header.totalEntries = f.header.totalEntries + 1
 
+	printHeaderEntry(f.header)
 	return nil
-}
-
-func (f *StreamFile) StartFileTx() {
-	f.uncommittedPage = f.currentPage
-	f.uncommittedOffset = f.currentOffset
 }
 
 func printStreamFile(f StreamFile) {
@@ -401,10 +356,5 @@ func printStreamFile(f StreamFile) {
 	fmt.Printf("  fileName: [%s]\n", f.fileName)
 	fmt.Printf("  pageSize: [%d]\n", f.pageSize)
 	fmt.Printf("  streamType: [%d]\n", f.streamType)
-	fmt.Printf("  totalPages: [%d]\n", f.totalPages)
-	fmt.Printf("  currentPage: [%d]\n", f.currentPage)
-	fmt.Printf("  currentOffset: [%d]\n", f.currentOffset)
-	fmt.Printf("  uncommittedPage: [%d]\n", f.uncommittedPage)
-	fmt.Printf("  uncommittedOffset: [%d]\n", f.uncommittedOffset)
 	printHeaderEntry(f.header)
 }
