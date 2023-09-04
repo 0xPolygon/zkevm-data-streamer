@@ -12,11 +12,11 @@ const (
 	ptSequencer = 1 // Sequencer
 
 	// File config
-	headerSize     = 29          // Header data size
-	pageHeaderSize = 4096        // 4K size header page
-	pageSize       = 1024 * 1024 // 1 MB size data page
-	initPages      = 8           // Initial number of data pages
-	nextPages      = 8           // Number of data pages to add when run out
+	headerSize     = 29  // Header data size
+	pageHeaderSize = 32  //4096        // 4K size header page
+	pageSize       = 128 //1024 * 1024 // 1 MB size data page
+	initPages      = 8   // Initial number of data pages
+	nextPages      = 8   // Number of data pages to add when file is full
 
 	// Is Entry values
 	IEPadding = 0
@@ -45,6 +45,7 @@ type StreamFile struct {
 	pageSize   uint32 // in bytes
 	file       *os.File
 	streamType uint64
+	maxLength  uint64 // File size
 
 	header HeaderEntry
 }
@@ -55,6 +56,7 @@ func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
 		pageSize:   pageSize,
 		file:       nil,
 		streamType: st,
+		maxLength:  0,
 
 		header: HeaderEntry{
 			packetType:   ptSequencer,
@@ -91,7 +93,7 @@ func (f *StreamFile) openCreateFile() error {
 	} else if err == nil {
 		// File already exists
 		fmt.Println("File for datastream already exists:", f.fileName)
-		f.file, err = os.OpenFile(f.fileName, os.O_APPEND, 0666)
+		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, 0666)
 		if err != nil {
 			fmt.Println("Error opening datastream file:", f.fileName, err)
 		}
@@ -102,6 +104,13 @@ func (f *StreamFile) openCreateFile() error {
 	if err != nil {
 		return err
 	}
+
+	// Max length of the file
+	info, err := f.file.Stat()
+	if err != nil {
+		return err
+	}
+	f.maxLength = uint64(info.Size())
 
 	// Check file consistency
 	err = f.checkFileConsistency()
@@ -149,9 +158,11 @@ func (f *StreamFile) createHeaderPage() error {
 		return err
 	}
 
+	// Update total data length and max file length
+	f.maxLength = f.maxLength + pageHeaderSize
 	f.header.totalLength = pageHeaderSize
 
-	// Update the header entry
+	// Write header entry
 	err = f.writeHeaderEntry()
 	return err
 }
@@ -181,7 +192,23 @@ func (f *StreamFile) createPage(size uint32) error {
 		return err
 	}
 
+	// Update max file length
+	f.maxLength = f.maxLength + uint64(size)
+
 	return nil
+}
+
+func (f *StreamFile) extendFile() error {
+	// Add data pages
+	var err error = nil
+	for i := 1; i <= nextPages; i++ {
+		err = f.createPage(f.pageSize)
+		if err != nil {
+			fmt.Println("Error adding page")
+			return err
+		}
+	}
+	return err
 }
 
 func (f *StreamFile) readHeaderEntry() error {
@@ -326,10 +353,32 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		return err
 	}
 
-	// TODO: check if the entry fits on current page
+	// Binary entry
+	be := encodeFileEntryToBinary(e)
+
+	// Check if the entry fits on current page
+	entryLength := uint64(len(be))
+	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
+	if entryLength > pageRemaining {
+		fmt.Println("== Fill with padd entries")
+		f.fillPagePaddEntries()
+
+		// Add new data pages to the file
+		if f.header.totalLength == f.maxLength {
+			fmt.Println("== FULL FILE -> extending!")
+			f.extendFile()
+			// Re-set the file position to write
+			_, err = f.file.Seek(int64(f.header.totalLength), 0)
+			if err != nil {
+				fmt.Println("Error seeking position to write after file extend:", err)
+				return err
+			}
+		}
+	} else {
+		fmt.Println("== Entry fits")
+	}
 
 	// Write the entry
-	be := encodeFileEntryToBinary(e)
 	_, err = f.file.Write(be)
 	if err != nil {
 		fmt.Println("Error writing the entry:", err)
@@ -344,10 +393,45 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	}
 
 	// Update the header just in memory (on disk when the commit arrives)
-	f.header.totalLength = f.header.totalLength + uint64(len(be))
+	f.header.totalLength = f.header.totalLength + entryLength
 	f.header.totalEntries = f.header.totalEntries + 1
 
 	printHeaderEntry(f.header)
+	return nil
+}
+
+func (f *StreamFile) fillPagePaddEntries() error {
+	// Set the file position to write
+	_, err := f.file.Seek(int64(f.header.totalLength), 0)
+	if err != nil {
+		fmt.Println("Error seeking fill padds position to write:", err)
+		return err
+	}
+
+	// Page remaining to fill with padd entries
+	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
+
+	if pageRemaining > 0 {
+		// Padd entries
+		entries := make([]byte, pageRemaining)
+		for i := 0; i < int(pageRemaining); i++ {
+			entries[i] = 0
+		}
+
+		// Write padd entries
+		_, err = f.file.Write(entries)
+		if err != nil {
+			fmt.Println("Error writing padd entries:", err)
+			return err
+		}
+
+		// Sync/flush to disk will be done outside this function
+
+		// Update the header just in memory (on disk when the commit arrives)
+		f.header.totalLength = f.header.totalLength + pageRemaining
+		f.header.totalEntries = f.header.totalEntries + pageRemaining
+	}
+
 	return nil
 }
 
@@ -356,5 +440,6 @@ func printStreamFile(f StreamFile) {
 	fmt.Printf("  fileName: [%s]\n", f.fileName)
 	fmt.Printf("  pageSize: [%d]\n", f.pageSize)
 	fmt.Printf("  streamType: [%d]\n", f.streamType)
+	fmt.Printf("  maxLength: [%d]\n", f.maxLength)
 	printHeaderEntry(f.header)
 }

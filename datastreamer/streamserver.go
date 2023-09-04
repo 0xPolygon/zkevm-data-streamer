@@ -163,12 +163,14 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 }
 
 func (s *StreamServer) StartStreamTx() error {
+	fmt.Println("!!!Start Tx")
 	s.tx.status = txStarted
 	s.tx.afterEntry = s.lastEntry
 	return nil
 }
 
 func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
+	fmt.Println("!!!Add entry")
 	e := FileEntry{
 		isEntry:   IEEntry,
 		length:    1 + 4 + 4 + 8 + uint32(len(data)),
@@ -187,6 +189,7 @@ func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error
 }
 
 func (s *StreamServer) CommitStreamTx() error {
+	fmt.Println("!!!Commit Tx")
 	s.tx.status = txCommitting
 	// TODO: work
 	err := s.fs.writeHeaderEntry()

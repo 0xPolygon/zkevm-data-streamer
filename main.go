@@ -32,8 +32,9 @@ func main() {
 	s.StartStreamTx()
 
 	// Add stream entries
-	s.AddStreamEntry(1, data)
-	s.AddStreamEntry(1, data)
+	for i := 1; i <= 2; i++ {
+		s.AddStreamEntry(1, data)
+	}
 
 	// Commit tx
 	s.CommitStreamTx()
