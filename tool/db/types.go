@@ -2,6 +2,7 @@ package db
 
 import (
 	"time"
+	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -15,8 +16,9 @@ type L2Block struct {
 }
 
 // Encode returns the encoded L2Block as a byte slice
-func (L2Block) Encode() []byte {
-	return []byte{}
+func (b L2Block) Encode() []byte {
+	const size = int(unsafe.Sizeof(L2Block{}))
+	return (*(*[size]byte)(unsafe.Pointer(&b)))[:]
 }
 
 type L2Transaction struct {
@@ -29,6 +31,7 @@ type L2Transaction struct {
 }
 
 // Encode returns the encoded L2Transaction as a byte slice
-func (L2Transaction) Encode() []byte {
-	return []byte{}
+func (l L2Transaction) Encode() []byte {
+	const size = int(unsafe.Sizeof(L2Transaction{}))
+	return (*(*[size]byte)(unsafe.Pointer(&l)))[:]
 }
