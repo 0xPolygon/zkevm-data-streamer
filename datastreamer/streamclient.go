@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
 
 const (
@@ -27,11 +29,23 @@ func NewClient(i int) {
 	fmt.Println("**Connected to server:", server)
 
 	// Send the command and stream type
-	writeFullUint64(uint64(i), conn)
-	writeFullUint64(StSequencer, conn)
+	err = writeFullUint64(uint64(i), conn)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	err = writeFullUint64(StSequencer, conn)
+	if err != nil {
+		log.Error(err)
+		return
+	}
 
 	// Read server result entry for the command
-	readResultEntry(conn)
+	_, err = readResultEntry(conn)
+	if err != nil {
+		log.Error(err)
+		return
+	}
 
 	// Read from server
 	readFromServer(conn)

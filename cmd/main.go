@@ -17,7 +17,10 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	ss.Start()
+	err = ss.Start()
+	if err != nil {
+		os.Exit(1)
+	}
 
 	// Create clients
 	go datastreamer.NewClient(1)
