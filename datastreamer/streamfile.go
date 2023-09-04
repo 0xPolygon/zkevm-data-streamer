@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
 
 const (
@@ -361,7 +363,11 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
 	if entryLength > pageRemaining {
 		fmt.Println("== Fill with padd entries")
-		f.fillPagePaddEntries()
+		log.Info("== Fill with padd entries")
+		err = f.fillPagePaddEntries()
+		if err != nil {
+			return err
+		}
 
 		// Add new data pages to the file
 		if f.header.totalLength == f.maxLength {
