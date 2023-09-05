@@ -11,3 +11,8 @@ Host = "localhost"
 Port = "5432"
 EnableLog = false	
 MaxConns = 200
+
+[Log]
+Environment = "development"
+Level = "info"
+Outputs = ["stdout"]
