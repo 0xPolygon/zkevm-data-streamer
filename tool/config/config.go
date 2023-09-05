@@ -23,6 +23,7 @@ const (
 type Config struct {
 	StreamServer datastreamer.Config `mapstructure:"StreamServer"`
 	StateDB      db.Config           `mapstructure:"StateDB"`
+	LogConfig    log.Config          `mapstructure:"Log"`
 }
 
 // Default parses the default configuration values.

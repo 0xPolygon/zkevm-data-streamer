@@ -66,6 +66,8 @@ func start(cliCtx *cli.Context) error {
 	}
 	log.Infof("Loaded configuration: %+v", c)
 
+	// Init logger
+	log.Init(c.LogConfig)
 	log.Info("Starting tool")
 
 	// Create a stream server
@@ -84,10 +86,35 @@ func start(cliCtx *cli.Context) error {
 	log.Info("Connected to the database")
 
 	var l2blocks []*db.L2Block
+
+	// Get Genesis block
+	l2blocks, err = stateDB.GetL2Blocks(cliCtx.Context, 1, 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = streamServer.StartStreamTx()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = streamServer.AddStreamEntry(1, l2blocks[0].Encode())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = streamServer.CommitStreamTx()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	var limit uint = 1000
-	var offset uint = 0
+	var offset uint = 1
+	var entry uint64
 
 	for err == nil {
+		log.Infof("Current entry number: %d", entry)
+
 		l2blocks, err = stateDB.GetL2Blocks(cliCtx.Context, limit, offset)
 		offset += limit
 		if len(l2blocks) == 0 {
@@ -111,12 +138,12 @@ func start(cliCtx *cli.Context) error {
 			}
 
 			if l2Transactions[x].BlockNum == l2block.BlockNum {
-				_, err = streamServer.AddStreamEntry(2, l2Transactions[x].Encode())
+				entry, err = streamServer.AddStreamEntry(2, l2Transactions[x].Encode())
 				if err != nil {
 					log.Fatal(err)
 				}
 			} else {
-				log.Fatal("Mismatch between l2 block and transaction")
+				log.Fatalf("Mismatch between l2 block and transaction: %d != %d", l2Transactions[x].BlockNum, l2block.BlockNum)
 			}
 		}
 		err = streamServer.CommitStreamTx()
