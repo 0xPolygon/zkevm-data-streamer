@@ -3,7 +3,6 @@ package datastreamer
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -14,11 +13,11 @@ const (
 	ptSequencer = 1 // Sequencer
 
 	// File config
-	headerSize     = 29  // Header data size
-	pageHeaderSize = 32  //4096        // 4K size header page
-	pageSize       = 128 //1024 * 1024 // 1 MB size data page
-	initPages      = 8   // Initial number of data pages
-	nextPages      = 8   // Number of data pages to add when file is full
+	headerSize     = 29          // Header data size
+	pageHeaderSize = 4096        // 4K size header page
+	pageSize       = 1024 * 1024 // 1 MB size data page
+	initPages      = 8           // Initial number of data pages
+	nextPages      = 8           // Number of data pages to add when file is full
 
 	// Is Entry values
 	IEPadding = 0
@@ -31,7 +30,7 @@ type HeaderEntry struct {
 	headLength   uint32
 	streamType   uint64
 	totalLength  uint64
-	totalEntries uint64
+	totalEntries uint64 // Total data entries (entry type 2)
 }
 
 type FileEntry struct {
@@ -83,24 +82,24 @@ func (f *StreamFile) openCreateFile() error {
 
 	if os.IsNotExist(err) {
 		// File does not exists so create it
-		fmt.Println("Creating file for datastream:", f.fileName)
+		log.Info("Creating file for datastream:", f.fileName)
 		f.file, err = os.Create(f.fileName)
 
 		if err != nil {
-			fmt.Println("Error creating datastream file:", f.fileName, err)
+			log.Error("Error creating datastream file:", f.fileName, err)
 		} else {
 			err = f.initializeFile()
 		}
 
 	} else if err == nil {
 		// File already exists
-		fmt.Println("File for datastream already exists:", f.fileName)
+		log.Info("File for datastream already exists:", f.fileName)
 		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, 0666)
 		if err != nil {
-			fmt.Println("Error opening datastream file:", f.fileName, err)
+			log.Error("Error opening datastream file:", f.fileName, err)
 		}
 	} else {
-		fmt.Println("Unable to check datastream file status:", f.fileName, err)
+		log.Error("Unable to check datastream file status:", f.fileName, err)
 	}
 
 	if err != nil {
@@ -144,7 +143,7 @@ func (f *StreamFile) initializeFile() error {
 	for i := 1; i <= initPages; i++ {
 		err = f.createPage(f.pageSize)
 		if err != nil {
-			fmt.Println("Eror creating page")
+			log.Error("Eror creating page")
 			return err
 		}
 	}
@@ -156,7 +155,7 @@ func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
 	err := f.createPage(pageHeaderSize)
 	if err != nil {
-		fmt.Println("Error creating the header page:", err)
+		log.Error("Error creating the header page:", err)
 		return err
 	}
 
@@ -176,21 +175,21 @@ func (f *StreamFile) createPage(size uint32) error {
 	// Position at the end of the file
 	_, err := f.file.Seek(0, 2)
 	if err != nil {
-		fmt.Println("Error seeking the end of the file:", err)
+		log.Error("Error seeking the end of the file:", err)
 		return err
 	}
 
 	// Write the page
 	_, err = f.file.Write(page)
 	if err != nil {
-		fmt.Println("Error writing a new page:", err)
+		log.Error("Error writing a new page:", err)
 		return err
 	}
 
 	// Flush
 	err = f.file.Sync()
 	if err != nil {
-		fmt.Println("Error flushing new page to disk:", err)
+		log.Error("Error flushing new page to disk:", err)
 		return err
 	}
 
@@ -206,7 +205,7 @@ func (f *StreamFile) extendFile() error {
 	for i := 1; i <= nextPages; i++ {
 		err = f.createPage(f.pageSize)
 		if err != nil {
-			fmt.Println("Error adding page")
+			log.Error("Error adding page")
 			return err
 		}
 	}
@@ -216,54 +215,54 @@ func (f *StreamFile) extendFile() error {
 func (f *StreamFile) readHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
-		fmt.Println("Error seeking the start of the file:", err)
+		log.Error("Error seeking the start of the file:", err)
 		return err
 	}
 
 	binaryHeader := make([]byte, headerSize)
 	n, err := f.file.Read(binaryHeader)
 	if err != nil {
-		fmt.Println("Error reading the header:", err)
+		log.Error("Error reading the header:", err)
 		return err
 	}
 	if n != headerSize {
-		fmt.Println("Error getting header info")
+		log.Error("Error getting header info")
 		return errors.New("error getting header info")
 	}
 
 	f.header, err = decodeBinaryToHeaderEntry(binaryHeader)
 	if err != nil {
-		fmt.Println("Error decoding binary header")
+		log.Error("Error decoding binary header")
 		return err
 	}
 	return nil
 }
 
 func printHeaderEntry(e HeaderEntry) {
-	fmt.Println("  --- HEADER ENTRY -------------------------")
-	fmt.Printf("  packetType: [%d]\n", e.packetType)
-	fmt.Printf("  headerLength: [%d]\n", e.headLength)
-	fmt.Printf("  streamType: [%d]\n", e.streamType)
-	fmt.Printf("  totalLength: [%d]\n", e.totalLength)
-	fmt.Printf("  totalEntries: [%d]\n", e.totalEntries)
+	log.Debug("--- HEADER ENTRY -------------------------")
+	log.Debugf("packetType: [%d]", e.packetType)
+	log.Debugf("headerLength: [%d]", e.headLength)
+	log.Debugf("streamType: [%d]", e.streamType)
+	log.Debugf("totalLength: [%d]", e.totalLength)
+	log.Debugf("totalEntries: [%d]", e.totalEntries)
 }
 
 func (f *StreamFile) writeHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
-		fmt.Println("Error seeking the start of the file:", err)
+		log.Error("Error seeking the start of the file:", err)
 		return err
 	}
 
 	binaryHeader := encodeHeaderEntryToBinary(f.header)
-	fmt.Println("writing header entry:", binaryHeader)
+	log.Debug("writing header entry:", binaryHeader)
 	_, err = f.file.Write(binaryHeader)
 	if err != nil {
-		fmt.Println("Error writing the header:", err)
+		log.Error("Error writing the header:", err)
 	}
 	err = f.file.Sync()
 	if err != nil {
-		fmt.Println("Error flushing header data to disk:", err)
+		log.Error("Error flushing header data to disk:", err)
 	}
 
 	return err
@@ -285,7 +284,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	e := HeaderEntry{}
 
 	if len(b) != headerSize {
-		fmt.Println("Invalid binary header entryy")
+		log.Error("Invalid binary header entryy")
 		return e, errors.New("invalid binary header entry")
 	}
 
@@ -311,19 +310,19 @@ func encodeFileEntryToBinary(e FileEntry) []byte {
 func (f *StreamFile) checkFileConsistency() error {
 	info, err := os.Stat(f.fileName)
 	if err != nil {
-		fmt.Println("Error checking file consistency")
+		log.Error("Error checking file consistency")
 		return err
 	}
 
 	if info.Size() < pageHeaderSize {
-		fmt.Println("Invalid file: missing header page")
+		log.Error("Invalid file: missing header page")
 		return errors.New("invalid file missing header page")
 	}
 
 	dataSize := info.Size() - pageHeaderSize
 	uncut := dataSize % int64(f.pageSize)
 	if uncut != 0 {
-		fmt.Println("Inconsistent file size there is a cut data page")
+		log.Error("Inconsistent file size there is a cut data page")
 		return errors.New("bad file size cut data page")
 	}
 
@@ -334,13 +333,13 @@ func (f *StreamFile) checkHeaderConsistency() error {
 	var err error = nil
 
 	if f.header.packetType != ptSequencer {
-		fmt.Println("Invalid header: bad packet type")
+		log.Error("Invalid header: bad packet type")
 		err = errors.New("invalid header bad packet type")
 	} else if f.header.headLength != headerSize {
-		fmt.Println("Invalid header: bad header length")
+		log.Error("Invalid header: bad header length")
 		err = errors.New("invalid header bad header length")
 	} else if f.header.streamType != f.streamType {
-		fmt.Println("Invalid header: bad stream type")
+		log.Error("Invalid header: bad stream type")
 		err = errors.New("invalid header bad stream type")
 	}
 
@@ -351,7 +350,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
-		fmt.Println("Error seeking position to write:", err)
+		log.Error("Error seeking position to write:", err)
 		return err
 	}
 
@@ -362,8 +361,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	entryLength := uint64(len(be))
 	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
 	if entryLength > pageRemaining {
-		fmt.Println("== Fill with padd entries")
-		log.Info("== Fill with padd entries")
+		log.Debug("== Fill with padd entries")
 		err = f.fillPagePaddEntries()
 		if err != nil {
 			return err
@@ -371,30 +369,36 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 		// Add new data pages to the file
 		if f.header.totalLength == f.maxLength {
-			fmt.Println("== FULL FILE -> extending!")
-			f.extendFile()
+			log.Debug("== FULL FILE -> extending!")
+			err = f.extendFile()
+			if err != nil {
+				return err
+			}
+
+			log.Info("New file max length:", f.maxLength)
+
 			// Re-set the file position to write
 			_, err = f.file.Seek(int64(f.header.totalLength), 0)
 			if err != nil {
-				fmt.Println("Error seeking position to write after file extend:", err)
+				log.Error("Error seeking position to write after file extend:", err)
 				return err
 			}
 		}
 	} else {
-		fmt.Println("== Entry fits")
+		log.Debug("== Entry fits")
 	}
 
 	// Write the entry
 	_, err = f.file.Write(be)
 	if err != nil {
-		fmt.Println("Error writing the entry:", err)
+		log.Error("Error writing the entry:", err)
 		return err
 	}
 
 	// Flush entry
 	err = f.file.Sync()
 	if err != nil {
-		fmt.Println("Error flushing new entry to disk:", err)
+		log.Error("Error flushing new entry to disk:", err)
 		return err
 	}
 
@@ -410,7 +414,7 @@ func (f *StreamFile) fillPagePaddEntries() error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
-		fmt.Println("Error seeking fill padds position to write:", err)
+		log.Error("Error seeking fill padds position to write:", err)
 		return err
 	}
 
@@ -427,7 +431,7 @@ func (f *StreamFile) fillPagePaddEntries() error {
 		// Write padd entries
 		_, err = f.file.Write(entries)
 		if err != nil {
-			fmt.Println("Error writing padd entries:", err)
+			log.Error("Error writing padd entries:", err)
 			return err
 		}
 
@@ -435,17 +439,17 @@ func (f *StreamFile) fillPagePaddEntries() error {
 
 		// Update the header just in memory (on disk when the commit arrives)
 		f.header.totalLength = f.header.totalLength + pageRemaining
-		f.header.totalEntries = f.header.totalEntries + pageRemaining
+		// f.header.totalEntries = f.header.totalEntries + pageRemaining
 	}
 
 	return nil
 }
 
 func printStreamFile(f StreamFile) {
-	fmt.Println("  --- STREAM FILE- -------------------------")
-	fmt.Printf("  fileName: [%s]\n", f.fileName)
-	fmt.Printf("  pageSize: [%d]\n", f.pageSize)
-	fmt.Printf("  streamType: [%d]\n", f.streamType)
-	fmt.Printf("  maxLength: [%d]\n", f.maxLength)
+	log.Debug("--- STREAM FILE --------------------------")
+	log.Debugf("fileName: [%s]", f.fileName)
+	log.Debugf("pageSize: [%d]", f.pageSize)
+	log.Debugf("streamType: [%d]", f.streamType)
+	log.Debugf("maxLength: [%d]", f.maxLength)
 	printHeaderEntry(f.header)
 }

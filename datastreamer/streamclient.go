@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -21,12 +20,12 @@ func NewClient(i int) {
 	// Connect to server
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		fmt.Println("**Error connecting to server:", server, err)
+		log.Error("**Error connecting to server:", server, err)
 		return
 	}
 
 	defer conn.Close()
-	fmt.Println("**Connected to server:", server)
+	log.Info("**Connected to server:", server)
 
 	// Send the command and stream type
 	err = writeFullUint64(uint64(i), conn)
@@ -58,15 +57,15 @@ func readFromServer(conn net.Conn) {
 		n, err := conn.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
-				fmt.Printf("client %s: no more data\n", client)
+				log.Errorf("**client %s: no more data", client)
 				return
 			}
-			fmt.Printf("client %s:error reading from server:%s\n", client, err)
+			log.Errorf("**client %s:error reading from server:%s", client, err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
 
-		fmt.Printf("client %s:message from server:[%s]\n", client, buffer[:n])
+		log.Infof("**client %s:message from server:[%s]", client, buffer[:n])
 	}
 }
 
@@ -76,7 +75,7 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 
 	_, err := conn.Write(buffer)
 	if err != nil {
-		fmt.Println("**Error sending to server:", err)
+		log.Error("**Error sending to server:", err)
 		return err
 	}
 	return nil
@@ -91,9 +90,9 @@ func readResultEntry(conn net.Conn) (ResultEntry, error) {
 	_, err := io.ReadFull(reader, buffer)
 	if err != nil {
 		if err == io.EOF {
-			fmt.Println("**Server close connection")
+			log.Warn("**Server close connection")
 		} else {
-			fmt.Println("**Error reading from server:", err)
+			log.Error("**Error reading from server:", err)
 		}
 		return e, err
 	}
@@ -101,7 +100,7 @@ func readResultEntry(conn net.Conn) (ResultEntry, error) {
 	// Read variable field (errStr)
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < 10 {
-		fmt.Println("**Error reading result entry")
+		log.Error("**Error reading result entry")
 		return e, errors.New("error reading result entry")
 	}
 
@@ -109,9 +108,9 @@ func readResultEntry(conn net.Conn) (ResultEntry, error) {
 	_, err = io.ReadFull(reader, bufferAux)
 	if err != nil {
 		if err == io.EOF {
-			fmt.Println("**Server close connection")
+			log.Warn("**Server close connection")
 		} else {
-			fmt.Println("**Error reading from server:", err)
+			log.Error("**Error reading from server:", err)
 		}
 		return e, err
 	}

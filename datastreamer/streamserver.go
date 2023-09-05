@@ -5,11 +5,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
 
 type Command uint64
@@ -89,6 +90,9 @@ func New(port uint16, fileName string) (StreamServer, error) {
 		return s, err
 	}
 
+	// Initialize the entry number
+	s.lastEntry = s.fs.header.totalEntries
+
 	return s, nil
 }
 
@@ -97,12 +101,12 @@ func (s *StreamServer) Start() error {
 	var err error
 	s.ln, err = net.Listen("tcp", ":"+strconv.Itoa(int(s.port)))
 	if err != nil {
-		fmt.Println("Error creating datastream server:", s.port, err)
+		log.Error("Error creating datastream server:", s.port, err)
 		return err
 	}
 
 	// Wait for clients connections
-	fmt.Println("Listening on port:", s.port)
+	log.Info("Listening on port:", s.port)
 	go s.waitConnections()
 
 	return nil
@@ -114,7 +118,7 @@ func (s *StreamServer) waitConnections() {
 	for {
 		conn, err := s.ln.Accept()
 		if err != nil {
-			fmt.Println("Error accepting new connection:", err)
+			log.Error("Error accepting new connection:", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -128,7 +132,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	clientId := conn.RemoteAddr().String()
-	fmt.Println("New connection:", conn.RemoteAddr())
+	log.Info("New connection:", conn.RemoteAddr())
 
 	client := streamClient{
 		conn:   conn,
@@ -149,11 +153,11 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 			return //TODO
 		}
 		if st != s.streamType {
-			fmt.Println("Mismatch stream type, killed:", clientId)
+			log.Error("Mismatch stream type, killed:", clientId)
 			return //TODO
 		}
 		// Manage the requested command
-		fmt.Printf("Command %d received from %s\n", command, clientId)
+		log.Infof("Command %d received from %s", command, clientId)
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
@@ -163,14 +167,14 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 }
 
 func (s *StreamServer) StartStreamTx() error {
-	fmt.Println("!!!Start Tx")
+	log.Debug("!!!Start Tx")
 	s.tx.status = txStarted
 	s.tx.afterEntry = s.lastEntry
 	return nil
 }
 
 func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
-	fmt.Println("!!!Add entry")
+	log.Debug("!!!Add entry")
 	e := FileEntry{
 		isEntry:   IEEntry,
 		length:    1 + 4 + 4 + 8 + uint32(len(data)),
@@ -189,7 +193,7 @@ func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error
 }
 
 func (s *StreamServer) CommitStreamTx() error {
-	fmt.Println("!!!Commit Tx")
+	log.Debug("!!!Commit Tx")
 	s.tx.status = txCommitting
 	// TODO: work
 	err := s.fs.writeHeaderEntry()
@@ -211,7 +215,7 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	switch command {
 	case CmdStart:
 		if client.status != csStopped {
-			fmt.Println("Stream to client already started!")
+			log.Error("Stream to client already started!")
 			err = errors.New("client already started")
 		} else {
 			client.status = csStarted
@@ -220,7 +224,7 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 
 	case CmdStop:
 		if client.status != csStarted {
-			fmt.Println("Stream to client already stopped!")
+			log.Error("Stream to client already stopped!")
 			err = errors.New("client already stopped")
 		} else {
 			client.status = csStopped
@@ -229,12 +233,12 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 
 	case CmdHeader:
 		if client.status != csStopped {
-			fmt.Println("Header command not allowed, stream started!")
+			log.Error("Header command not allowed, stream started!")
 			err = errors.New("header command not allowed")
 		}
 
 	default:
-		fmt.Println("Invalid command!")
+		log.Error("Invalid command!")
 		err = errors.New("invalid command")
 	}
 
@@ -263,14 +267,14 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 
 	// Convert struct to binary bytes
 	binaryEntry := encodeResultEntryToBinary(entry)
-	fmt.Println("result entry:", binaryEntry)
+	log.Debug("result entry:", binaryEntry)
 
 	// Send the result entry to the client
 	conn := s.clients[clientId].conn
 	writer := bufio.NewWriter(conn)
 	_, err := writer.Write(binaryEntry)
 	if err != nil {
-		fmt.Println("Error sending result entry")
+		log.Error("Error sending result entry")
 	}
 	writer.Flush()
 
@@ -283,9 +287,9 @@ func readFullUint64(reader *bufio.Reader) (uint64, error) {
 	n, err := io.ReadFull(reader, buffer)
 	if err != nil {
 		if err == io.EOF {
-			fmt.Println("Client close connection")
+			log.Warn("Client close connection")
 		} else {
-			fmt.Println("Error reading from client:", err)
+			log.Error("Error reading from client:", err)
 		}
 		return 0, err
 	}
@@ -294,7 +298,7 @@ func readFullUint64(reader *bufio.Reader) (uint64, error) {
 	var value uint64
 	err = binary.Read(bytes.NewReader(buffer[:n]), binary.BigEndian, &value)
 	if err != nil {
-		fmt.Println("Error converting bytes to uint64")
+		log.Error("Error converting bytes to uint64")
 		return 0, err
 	}
 
@@ -316,7 +320,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 	e := ResultEntry{}
 
 	if len(b) < 10 {
-		fmt.Println("Invalid binary result entry")
+		log.Error("Invalid binary result entry")
 		return e, errors.New("invalid binary result entry")
 	}
 
@@ -326,7 +330,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 	e.errorStr = b[9:]
 
 	if uint32(len(e.errorStr)) != e.length-1-4-4 {
-		fmt.Println("Error decoding binary result entry")
+		log.Error("Error decoding binary result entry")
 		return e, errors.New("error decoding binary result entry")
 	}
 
@@ -334,9 +338,9 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 }
 
 func PrintResultEntry(e ResultEntry) {
-	fmt.Println("  --- RESULT ENTRY -------------------------")
-	fmt.Printf("  isEntry: [%d]\n", e.isEntry)
-	fmt.Printf("  length: [%d]\n", e.length)
-	fmt.Printf("  errorNum: [%d]\n", e.errorNum)
-	fmt.Printf("  errorStr: [%s]\n", e.errorStr)
+	log.Debug("--- RESULT ENTRY -------------------------")
+	log.Debugf("isEntry: [%d]", e.isEntry)
+	log.Debugf("length: [%d]", e.length)
+	log.Debugf("errorNum: [%d]", e.errorNum)
+	log.Debugf("errorStr: [%s]", e.errorStr)
 }
