@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -24,16 +25,20 @@ func main() {
 	}
 
 	// Create clients
-	go datastreamer.NewClient(1)
+	go startNewClient()
+	go startNewClient()
 
-	// Fake stream data
+	time.Sleep(2 * time.Second)
+
+	// ------------------------------------------------------------
+	// Fake Sequencer data
 	data := make([]byte, 32)
 	for i := 0; i < 32; i++ {
 		data[i] = byte(i)
 	}
 
-	// Start tx
-	err = s.StartStreamTx()
+	// Start atomic operation
+	err = s.StartAtomicOp()
 	if err != nil {
 		log.Error(">> App error! StartStreamTx")
 		return
@@ -49,12 +54,13 @@ func main() {
 		log.Info(">> App info. Added entry:", entry)
 	}
 
-	// Commit tx
-	err = s.CommitStreamTx()
+	// Commit atomic operation
+	err = s.CommitAtomicOp()
 	if err != nil {
 		log.Error(">> App error! CommitStreamTx")
 		return
 	}
+	// ------------------------------------------------------------
 
 	// Wait for ctl+c
 	log.Info(">> Press Control+C to finish...")
@@ -63,4 +69,27 @@ func main() {
 	<-interruptSignal
 
 	log.Info(">> App end")
+}
+
+func startNewClient() {
+	// Create client
+	log.Debug("### New client")
+	c, err := datastreamer.NewClient("127.0.0.1:1337")
+	if err != nil {
+		return
+	}
+
+	// Start client (connect to the server)
+	log.Debug("### Start client")
+	err = c.Start()
+	if err != nil {
+		return
+	}
+
+	// Start streaming receive (execute command Start)
+	log.Debug("### Send Start command client")
+	err = c.ExecCommand(datastreamer.CmdStart)
+	if err != nil {
+		return
+	}
 }

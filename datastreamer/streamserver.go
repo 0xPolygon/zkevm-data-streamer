@@ -15,7 +15,8 @@ import (
 
 type Command uint64
 type ClientStatus uint64
-type TxStatus uint64
+type AOStatus uint64
+type EntryType uint32
 
 const (
 	// Stream type
@@ -29,11 +30,16 @@ const (
 	// Client status
 	csStarted ClientStatus = 1
 	csStopped ClientStatus = 2
+	csKilled  ClientStatus = 0xff
 
-	// Transaction status
-	txNone       TxStatus = 0
-	txStarted    TxStatus = 1
-	txCommitting TxStatus = 2
+	// Atomic operation status
+	aoNone       AOStatus = 0
+	aoStarted    AOStatus = 1
+	aoCommitting AOStatus = 2
+
+	// Entry types (events)
+	EtStartL2Block EntryType = 1
+	EtExecuteL2Tx  EntryType = 2
 )
 
 type StreamServer struct {
@@ -42,28 +48,29 @@ type StreamServer struct {
 
 	streamType uint64
 	ln         net.Listener
-	clients    map[string]streamClient
+	clients    map[string]*client
 
 	lastEntry uint64
-	tx        streamTx
-	fs        StreamFile
+	atomicOp  streamAO
+	sf        StreamFile
 }
 
-type streamTx struct {
-	status     TxStatus
+type streamAO struct {
+	status     AOStatus
 	afterEntry uint64
+	entries    []FileEntry
 }
 
-type streamClient struct {
+type client struct {
 	conn   net.Conn
 	status ClientStatus
 }
 
 type ResultEntry struct {
-	isEntry  uint8 // 0xff: Result
-	length   uint32
-	errorNum uint32 // 0:No error
-	errorStr []byte
+	packetType uint8 // 0xff:Result
+	length     uint32
+	errorNum   uint32 // 0:No error
+	errorStr   []byte
 }
 
 func New(port uint16, fileName string) (StreamServer, error) {
@@ -74,24 +81,25 @@ func New(port uint16, fileName string) (StreamServer, error) {
 
 		streamType: StSequencer,
 		ln:         nil,
-		clients:    make(map[string]streamClient),
+		clients:    make(map[string]*client),
 		lastEntry:  0,
 
-		tx: streamTx{
-			status:     txNone,
+		atomicOp: streamAO{
+			status:     aoNone,
 			afterEntry: 0,
+			entries:    []FileEntry{},
 		},
 	}
 
 	// Open (or create) the data stream file
 	var err error
-	s.fs, err = PrepareStreamFile(s.fileName, s.streamType)
+	s.sf, err = PrepareStreamFile(s.fileName, s.streamType)
 	if err != nil {
 		return s, err
 	}
 
 	// Initialize the entry number
-	s.lastEntry = s.fs.header.totalEntries
+	s.lastEntry = s.sf.header.totalEntries
 
 	return s, nil
 }
@@ -101,12 +109,12 @@ func (s *StreamServer) Start() error {
 	var err error
 	s.ln, err = net.Listen("tcp", ":"+strconv.Itoa(int(s.port)))
 	if err != nil {
-		log.Error("Error creating datastream server:", s.port, err)
+		log.Error("Error creating datastream server: ", s.port, err)
 		return err
 	}
 
 	// Wait for clients connections
-	log.Info("Listening on port:", s.port)
+	log.Info("Listening on port: ", s.port)
 	go s.waitConnections()
 
 	return nil
@@ -118,7 +126,7 @@ func (s *StreamServer) waitConnections() {
 	for {
 		conn, err := s.ln.Accept()
 		if err != nil {
-			log.Error("Error accepting new connection:", err)
+			log.Error("Error accepting new connection: ", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -132,81 +140,126 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	clientId := conn.RemoteAddr().String()
-	log.Info("New connection:", conn.RemoteAddr())
+	log.Info("New connection: ", conn.RemoteAddr())
 
-	client := streamClient{
+	s.clients[clientId] = &client{
 		conn:   conn,
 		status: csStopped,
 	}
 
-	s.clients[clientId] = client
+	cli := s.clients[clientId]
 
 	reader := bufio.NewReader(conn)
 	for {
-		// Read command and stream type
+		// Read command
 		command, err := readFullUint64(reader)
 		if err != nil {
+			cli.status = csKilled
 			return //TODO
 		}
+		// Read stream type
 		st, err := readFullUint64(reader)
 		if err != nil {
+			cli.status = csKilled
 			return //TODO
 		}
+		// Check stream type
 		if st != s.streamType {
-			log.Error("Mismatch stream type, killed:", clientId)
+			log.Error("Mismatch stream type, killed: ", clientId)
+			cli.status = csKilled
 			return //TODO
 		}
+
 		// Manage the requested command
 		log.Infof("Command %d received from %s", command, clientId)
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
+			cli.status = csKilled
 			return
 		}
 	}
 }
 
-func (s *StreamServer) StartStreamTx() error {
-	log.Debug("!!!Start Tx")
-	s.tx.status = txStarted
-	s.tx.afterEntry = s.lastEntry
+func (s *StreamServer) StartAtomicOp() error {
+	log.Debug("!!!Start AtomicOp")
+	s.atomicOp.status = aoStarted
+	s.atomicOp.afterEntry = s.lastEntry
 	return nil
 }
 
 func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
 	log.Debug("!!!Add entry")
+	// Generate data entry
 	e := FileEntry{
-		isEntry:   IEEntry,
-		length:    1 + 4 + 4 + 8 + uint32(len(data)),
-		entryType: etype,
-		entryNum:  s.lastEntry + 1,
-		data:      data,
+		packetType: PtEntry,
+		length:     1 + 4 + 4 + 8 + uint32(len(data)),
+		entryType:  EntryType(etype),
+		entryNum:   s.lastEntry + 1,
+		data:       data,
 	}
 
-	err := s.fs.AddFileEntry(e)
+	// Write data entry in the file
+	err := s.sf.AddFileEntry(e)
 	if err != nil {
 		return 0, nil
 	}
 
+	// Save the entry in the atomic operation in progress
+	s.atomicOp.entries = append(s.atomicOp.entries, e)
+
+	// Increase sequential entry number
 	s.lastEntry++
 	return s.lastEntry, nil
 }
 
-func (s *StreamServer) CommitStreamTx() error {
+func (s *StreamServer) CommitAtomicOp() error {
 	log.Debug("!!!Commit Tx")
-	s.tx.status = txCommitting
-	// TODO: work
-	err := s.fs.writeHeaderEntry()
+	s.atomicOp.status = aoCommitting
+
+	// Update header in the file (commit new entries)
+	err := s.sf.writeHeaderEntry()
 	if err != nil {
 		return err
 	}
 
-	s.tx.status = txNone
+	// Do broadcast of the commited atomic operation to the stream clients
+	s.broadcastAtomicOp() // TODO: call as goroutine
+
 	return nil
 }
 
+func (s *StreamServer) broadcastAtomicOp() {
+	// For each connected and started client
+	log.Debug("Broadcast clients length: ", len(s.clients))
+	for id, cli := range s.clients {
+		log.Debugf("Client %s status %d", id, cli.status)
+		if cli.status != csStarted {
+			continue
+		}
+
+		// Send entries
+		log.Debug("Streaming to: ", id)
+		writer := bufio.NewWriter(cli.conn)
+		for _, entry := range s.atomicOp.entries {
+			log.Debug("Sending data entry: ", entry.entryNum)
+			binaryEntry := encodeFileEntryToBinary(entry)
+
+			// Send the file entry
+			_, err := writer.Write(binaryEntry)
+			if err != nil {
+				log.Error("Error sending file entry")
+				// TODO: kill client
+			}
+		}
+		writer.Flush()
+	}
+
+	s.atomicOp.status = aoNone
+}
+
 func (s *StreamServer) processCommand(command Command, clientId string) error {
-	client := s.clients[clientId]
+	cli := s.clients[clientId]
 
 	var err error = nil
 	var errNum uint32 = 0
@@ -214,25 +267,25 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	// Manage each different kind of command request from a client
 	switch command {
 	case CmdStart:
-		if client.status != csStopped {
+		if cli.status != csStopped {
 			log.Error("Stream to client already started!")
 			err = errors.New("client already started")
 		} else {
-			client.status = csStarted
+			cli.status = csStarted
 			// TODO
 		}
 
 	case CmdStop:
-		if client.status != csStarted {
+		if cli.status != csStarted {
 			log.Error("Stream to client already stopped!")
 			err = errors.New("client already stopped")
 		} else {
-			client.status = csStopped
+			cli.status = csStopped
 			// TODO
 		}
 
 	case CmdHeader:
-		if client.status != csStopped {
+		if cli.status != csStopped {
 			log.Error("Header command not allowed, stream started!")
 			err = errors.New("header command not allowed")
 		}
@@ -258,16 +311,16 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	byteSlice := []byte(errorStr)
 
 	entry := ResultEntry{
-		isEntry:  0xff,
-		length:   1 + 4 + 4 + uint32(len(byteSlice)),
-		errorNum: errorNum,
-		errorStr: byteSlice,
+		packetType: PtResult,
+		length:     1 + 4 + 4 + uint32(len(byteSlice)),
+		errorNum:   errorNum,
+		errorStr:   byteSlice,
 	}
 	PrintResultEntry(entry) // TODO: remove
 
 	// Convert struct to binary bytes
 	binaryEntry := encodeResultEntryToBinary(entry)
-	log.Debug("result entry:", binaryEntry)
+	log.Debug("result entry: ", binaryEntry)
 
 	// Send the result entry to the client
 	conn := s.clients[clientId].conn
@@ -289,7 +342,7 @@ func readFullUint64(reader *bufio.Reader) (uint64, error) {
 		if err == io.EOF {
 			log.Warn("Client close connection")
 		} else {
-			log.Error("Error reading from client:", err)
+			log.Error("Error reading from client: ", err)
 		}
 		return 0, err
 	}
@@ -308,7 +361,7 @@ func readFullUint64(reader *bufio.Reader) (uint64, error) {
 // Encode/convert from an entry type to binary bytes slice
 func encodeResultEntryToBinary(e ResultEntry) []byte {
 	be := make([]byte, 1)
-	be[0] = e.isEntry
+	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.length)
 	be = binary.BigEndian.AppendUint32(be, e.errorNum)
 	be = append(be, e.errorStr...)
@@ -319,17 +372,17 @@ func encodeResultEntryToBinary(e ResultEntry) []byte {
 func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 	e := ResultEntry{}
 
-	if len(b) < 10 {
+	if len(b) < FixedSizeResultEntry {
 		log.Error("Invalid binary result entry")
 		return e, errors.New("invalid binary result entry")
 	}
 
-	e.isEntry = b[0]
+	e.packetType = b[0]
 	e.length = binary.BigEndian.Uint32(b[1:5])
 	e.errorNum = binary.BigEndian.Uint32(b[5:9])
 	e.errorStr = b[9:]
 
-	if uint32(len(e.errorStr)) != e.length-1-4-4 {
+	if uint32(len(e.errorStr)) != e.length-FixedSizeResultEntry {
 		log.Error("Error decoding binary result entry")
 		return e, errors.New("error decoding binary result entry")
 	}
@@ -339,7 +392,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 
 func PrintResultEntry(e ResultEntry) {
 	log.Debug("--- RESULT ENTRY -------------------------")
-	log.Debugf("isEntry: [%d]", e.isEntry)
+	log.Debugf("packetType: [%d]", e.packetType)
 	log.Debugf("length: [%d]", e.length)
 	log.Debugf("errorNum: [%d]", e.errorNum)
 	log.Debugf("errorStr: [%s]", e.errorStr)

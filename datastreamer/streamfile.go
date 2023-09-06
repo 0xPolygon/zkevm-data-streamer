@@ -9,9 +9,6 @@ import (
 )
 
 const (
-	// Packet type
-	ptSequencer = 1 // Sequencer
-
 	// File config
 	headerSize     = 29          // Header data size
 	pageHeaderSize = 4096        // 4K size header page
@@ -19,26 +16,31 @@ const (
 	initPages      = 80          // Initial number of data pages
 	nextPages      = 8           // Number of data pages to add when file is full
 
-	// Is Entry values
-	IEPadding = 0
-	IEHeader  = 1
-	IEEntry   = 2
+	// Packet types
+	PtPadding = 0
+	PtHeader  = 1    // Just for the header page
+	PtEntry   = 2    // Data entry
+	PtResult  = 0xff // Not stored/present in file (for client command result)
+
+	// Sizes
+	FixedSizeFileEntry   = 17 // 1+4+4+8
+	FixedSizeResultEntry = 9  // 1+4+4
 )
 
 type HeaderEntry struct {
-	packetType   uint8
-	headLength   uint32
-	streamType   uint64
-	totalLength  uint64
-	totalEntries uint64 // Total data entries (entry type 2)
+	packetType   uint8  // 1:Header
+	headLength   uint32 // 29
+	streamType   uint64 // 1:Sequencer
+	totalLength  uint64 // Total bytes used in the file
+	totalEntries uint64 // Total number of data entries (entry type 2)
 }
 
 type FileEntry struct {
-	isEntry   uint8  // 0:Padding, 1:Header, 2:Entry
-	length    uint32 // Length of the entry
-	entryType uint32 // 1:Tx, 2:Batch-start
-	entryNum  uint64 // Entry sequential number (starts with 0)
-	data      []byte
+	packetType uint8     // 2:Data entry, 0:Padding, (1:Header)
+	length     uint32    // Length of the entry
+	entryType  EntryType // 1:L2 block, 2:L2 tx
+	entryNum   uint64    // Entry number (sequential starting with 0)
+	data       []byte
 }
 
 type StreamFile struct {
@@ -60,7 +62,7 @@ func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
 		maxLength:  0,
 
 		header: HeaderEntry{
-			packetType:   ptSequencer,
+			packetType:   PtHeader,
 			headLength:   headerSize,
 			streamType:   st,
 			totalLength:  0,
@@ -82,24 +84,24 @@ func (f *StreamFile) openCreateFile() error {
 
 	if os.IsNotExist(err) {
 		// File does not exists so create it
-		log.Info("Creating file for datastream:", f.fileName)
+		log.Info("Creating file for datastream: ", f.fileName)
 		f.file, err = os.Create(f.fileName)
 
 		if err != nil {
-			log.Error("Error creating datastream file:", f.fileName, err)
+			log.Error("Error creating datastream file: ", f.fileName, err)
 		} else {
 			err = f.initializeFile()
 		}
 
 	} else if err == nil {
 		// File already exists
-		log.Info("File for datastream already exists:", f.fileName)
+		log.Info("File for datastream already exists: ", f.fileName)
 		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, 0666)
 		if err != nil {
-			log.Error("Error opening datastream file:", f.fileName, err)
+			log.Error("Error opening datastream file: ", f.fileName, err)
 		}
 	} else {
-		log.Error("Unable to check datastream file status:", f.fileName, err)
+		log.Error("Unable to check datastream file status: ", f.fileName, err)
 	}
 
 	if err != nil {
@@ -155,7 +157,7 @@ func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
 	err := f.createPage(pageHeaderSize)
 	if err != nil {
-		log.Error("Error creating the header page:", err)
+		log.Error("Error creating the header page: ", err)
 		return err
 	}
 
@@ -175,21 +177,21 @@ func (f *StreamFile) createPage(size uint32) error {
 	// Position at the end of the file
 	_, err := f.file.Seek(0, 2)
 	if err != nil {
-		log.Error("Error seeking the end of the file:", err)
+		log.Error("Error seeking the end of the file: ", err)
 		return err
 	}
 
 	// Write the page
 	_, err = f.file.Write(page)
 	if err != nil {
-		log.Error("Error writing a new page:", err)
+		log.Error("Error writing a new page: ", err)
 		return err
 	}
 
 	// Flush
 	err = f.file.Sync()
 	if err != nil {
-		log.Error("Error flushing new page to disk:", err)
+		log.Error("Error flushing new page to disk: ", err)
 		return err
 	}
 
@@ -215,14 +217,14 @@ func (f *StreamFile) extendFile() error {
 func (f *StreamFile) readHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
-		log.Error("Error seeking the start of the file:", err)
+		log.Error("Error seeking the start of the file: ", err)
 		return err
 	}
 
 	binaryHeader := make([]byte, headerSize)
 	n, err := f.file.Read(binaryHeader)
 	if err != nil {
-		log.Error("Error reading the header:", err)
+		log.Error("Error reading the header: ", err)
 		return err
 	}
 	if n != headerSize {
@@ -250,19 +252,19 @@ func printHeaderEntry(e HeaderEntry) {
 func (f *StreamFile) writeHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
-		log.Error("Error seeking the start of the file:", err)
+		log.Error("Error seeking the start of the file: ", err)
 		return err
 	}
 
 	binaryHeader := encodeHeaderEntryToBinary(f.header)
-	log.Debug("writing header entry:", binaryHeader)
+	log.Debug("writing header entry: ", binaryHeader)
 	_, err = f.file.Write(binaryHeader)
 	if err != nil {
-		log.Error("Error writing the header:", err)
+		log.Error("Error writing the header: ", err)
 	}
 	err = f.file.Sync()
 	if err != nil {
-		log.Error("Error flushing header data to disk:", err)
+		log.Error("Error flushing header data to disk: ", err)
 	}
 
 	return err
@@ -284,7 +286,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	e := HeaderEntry{}
 
 	if len(b) != headerSize {
-		log.Error("Invalid binary header entryy")
+		log.Error("Invalid binary header entry")
 		return e, errors.New("invalid binary header entry")
 	}
 
@@ -299,9 +301,9 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 
 func encodeFileEntryToBinary(e FileEntry) []byte {
 	be := make([]byte, 1)
-	be[0] = e.isEntry
+	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.length)
-	be = binary.BigEndian.AppendUint32(be, e.entryType)
+	be = binary.BigEndian.AppendUint32(be, uint32(e.entryType))
 	be = binary.BigEndian.AppendUint64(be, e.entryNum)
 	be = append(be, e.data...)
 	return be
@@ -332,13 +334,13 @@ func (f *StreamFile) checkFileConsistency() error {
 func (f *StreamFile) checkHeaderConsistency() error {
 	var err error = nil
 
-	if f.header.packetType != ptSequencer {
+	if f.header.packetType != PtHeader {
 		log.Error("Invalid header: bad packet type")
 		err = errors.New("invalid header bad packet type")
 	} else if f.header.headLength != headerSize {
 		log.Error("Invalid header: bad header length")
 		err = errors.New("invalid header bad header length")
-	} else if f.header.streamType != f.streamType {
+	} else if f.header.streamType != StSequencer {
 		log.Error("Invalid header: bad stream type")
 		err = errors.New("invalid header bad stream type")
 	}
@@ -375,12 +377,12 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 				return err
 			}
 
-			log.Info("New file max length:", f.maxLength)
+			log.Info("New file max length: ", f.maxLength)
 
 			// Re-set the file position to write
 			_, err = f.file.Seek(int64(f.header.totalLength), 0)
 			if err != nil {
-				log.Error("Error seeking position to write after file extend:", err)
+				log.Error("Error seeking position to write after file extend: ", err)
 				return err
 			}
 		}
@@ -391,14 +393,14 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Write the entry
 	_, err = f.file.Write(be)
 	if err != nil {
-		log.Error("Error writing the entry:", err)
+		log.Error("Error writing the entry: ", err)
 		return err
 	}
 
 	// Flush entry
 	err = f.file.Sync()
 	if err != nil {
-		log.Error("Error flushing new entry to disk:", err)
+		log.Error("Error flushing new entry to disk: ", err)
 		return err
 	}
 
@@ -414,7 +416,7 @@ func (f *StreamFile) fillPagePaddEntries() error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
-		log.Error("Error seeking fill padds position to write:", err)
+		log.Error("Error seeking fill padds position to write: ", err)
 		return err
 	}
 
@@ -431,7 +433,7 @@ func (f *StreamFile) fillPagePaddEntries() error {
 		// Write padd entries
 		_, err = f.file.Write(entries)
 		if err != nil {
-			log.Error("Error writing padd entries:", err)
+			log.Error("Error writing padd entries: ", err)
 			return err
 		}
 
@@ -452,4 +454,27 @@ func printStreamFile(f StreamFile) {
 	log.Debugf("streamType: [%d]", f.streamType)
 	log.Debugf("maxLength: [%d]", f.maxLength)
 	printHeaderEntry(f.header)
+}
+
+// Decode/convert from binary bytes slice to file entry type
+func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
+	d := FileEntry{}
+
+	if len(b) < FixedSizeFileEntry {
+		log.Error("Invalid binary data entry")
+		return d, errors.New("invalid binary data entry")
+	}
+
+	d.packetType = b[0]
+	d.length = binary.BigEndian.Uint32(b[1:5])
+	d.entryType = EntryType(binary.BigEndian.Uint32(b[5:9]))
+	d.entryNum = binary.BigEndian.Uint64(b[9:17])
+	d.data = b[17:]
+
+	if uint32(len(d.data)) != d.length-FixedSizeFileEntry {
+		log.Error("Error decoding binary data entry")
+		return d, errors.New("error decoding binary data entry")
+	}
+
+	return d, nil
 }
