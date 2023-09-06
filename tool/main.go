@@ -93,7 +93,7 @@ func start(cliCtx *cli.Context) error {
 		log.Fatal(err)
 	}
 
-	err = streamServer.StartStreamTx()
+	err = streamServer.StartAtomicOp()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func start(cliCtx *cli.Context) error {
 		log.Fatal(err)
 	}
 
-	err = streamServer.CommitStreamTx()
+	err = streamServer.CommitAtomicOp()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func start(cliCtx *cli.Context) error {
 			log.Fatal(err)
 		}
 
-		err = streamServer.StartStreamTx()
+		err = streamServer.StartAtomicOp()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -146,7 +146,7 @@ func start(cliCtx *cli.Context) error {
 				log.Fatalf("Mismatch between transaction and l2block batch numbers: %d != %d", l2Transactions[x].BatchNumber, l2block.BatchNumber)
 			}
 		}
-		err = streamServer.CommitStreamTx()
+		err = streamServer.CommitAtomicOp()
 		if err != nil {
 			log.Fatal(err)
 		}
