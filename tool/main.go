@@ -143,7 +143,7 @@ func start(cliCtx *cli.Context) error {
 					log.Fatal(err)
 				}
 			} else {
-				log.Fatalf("Mismatch between l2 batch and transaction: %d != %d", l2Transactions[x].BatchNumber, l2block.BatchNumber)
+				log.Fatalf("Mismatch between transaction and l2block batch numbers: %d != %d", l2Transactions[x].BatchNumber, l2block.BatchNumber)
 			}
 		}
 		err = streamServer.CommitStreamTx()
