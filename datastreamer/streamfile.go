@@ -9,9 +9,6 @@ import (
 )
 
 const (
-	// Packet type
-	ptSequencer = 1 // Sequencer
-
 	// File config
 	headerSize     = 29          // Header data size
 	pageHeaderSize = 4096        // 4K size header page
@@ -19,26 +16,27 @@ const (
 	initPages      = 80          // Initial number of data pages
 	nextPages      = 8           // Number of data pages to add when file is full
 
-	// Is Entry values
-	IEPadding = 0
-	IEHeader  = 1
-	IEEntry   = 2
+	// Packet types
+	PtPadding = 0
+	PtHeader  = 1    // Just for the header page
+	PtEntry   = 2    // Data entry
+	PtResult  = 0xff // Not stored/present in file (for client command result)
 )
 
 type HeaderEntry struct {
-	packetType   uint8
-	headLength   uint32
-	streamType   uint64
-	totalLength  uint64
-	totalEntries uint64 // Total data entries (entry type 2)
+	packetType   uint8  // 1:Header
+	headLength   uint32 // 29
+	streamType   uint64 // 1:Sequencer
+	totalLength  uint64 // Total bytes used in the file
+	totalEntries uint64 // Total number of data entries (entry type 2)
 }
 
 type FileEntry struct {
-	isEntry   uint8  // 0:Padding, 1:Header, 2:Entry
-	length    uint32 // Length of the entry
-	entryType uint32 // 1:Tx, 2:Batch-start
-	entryNum  uint64 // Entry sequential number (starts with 0)
-	data      []byte
+	packetType uint8  // 2:Data entry, 0:Padding, (1:Header)
+	length     uint32 // Length of the entry
+	entryType  uint32 // 1:L2 block, 2:L2 tx
+	entryNum   uint64 // Entry number (sequential starting with 0)
+	data       []byte
 }
 
 type StreamFile struct {
@@ -60,7 +58,7 @@ func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
 		maxLength:  0,
 
 		header: HeaderEntry{
-			packetType:   ptSequencer,
+			packetType:   PtHeader,
 			headLength:   headerSize,
 			streamType:   st,
 			totalLength:  0,
@@ -299,7 +297,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 
 func encodeFileEntryToBinary(e FileEntry) []byte {
 	be := make([]byte, 1)
-	be[0] = e.isEntry
+	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.length)
 	be = binary.BigEndian.AppendUint32(be, e.entryType)
 	be = binary.BigEndian.AppendUint64(be, e.entryNum)
@@ -332,13 +330,13 @@ func (f *StreamFile) checkFileConsistency() error {
 func (f *StreamFile) checkHeaderConsistency() error {
 	var err error = nil
 
-	if f.header.packetType != ptSequencer {
+	if f.header.packetType != PtHeader {
 		log.Error("Invalid header: bad packet type")
 		err = errors.New("invalid header bad packet type")
 	} else if f.header.headLength != headerSize {
 		log.Error("Invalid header: bad header length")
 		err = errors.New("invalid header bad header length")
-	} else if f.header.streamType != f.streamType {
+	} else if f.header.streamType != StSequencer {
 		log.Error("Invalid header: bad stream type")
 		err = errors.New("invalid header bad stream type")
 	}

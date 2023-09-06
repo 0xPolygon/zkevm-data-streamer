@@ -85,7 +85,7 @@ func readResultEntry(conn net.Conn) (ResultEntry, error) {
 	e := ResultEntry{}
 	reader := bufio.NewReader(conn)
 
-	// Read fixed fields (isentry 1byte, length 4bytes, errNum 4bytes)
+	// Read fixed fields (packetType 1byte, length 4bytes, errNum 4bytes)
 	buffer := make([]byte, 9)
 	_, err := io.ReadFull(reader, buffer)
 	if err != nil {

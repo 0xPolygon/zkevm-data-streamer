@@ -60,10 +60,10 @@ type streamClient struct {
 }
 
 type ResultEntry struct {
-	isEntry  uint8 // 0xff: Result
-	length   uint32
-	errorNum uint32 // 0:No error
-	errorStr []byte
+	packetType uint8 // 0xff:Result
+	length     uint32
+	errorNum   uint32 // 0:No error
+	errorStr   []byte
 }
 
 func New(port uint16, fileName string) (StreamServer, error) {
@@ -166,8 +166,8 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	}
 }
 
-func (s *StreamServer) StartStreamTx() error {
-	log.Debug("!!!Start Tx")
+func (s *StreamServer) StartAtomicOp() error {
+	log.Debug("!!!Start AtomicOp")
 	s.tx.status = txStarted
 	s.tx.afterEntry = s.lastEntry
 	return nil
@@ -176,11 +176,11 @@ func (s *StreamServer) StartStreamTx() error {
 func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
 	log.Debug("!!!Add entry")
 	e := FileEntry{
-		isEntry:   IEEntry,
-		length:    1 + 4 + 4 + 8 + uint32(len(data)),
-		entryType: etype,
-		entryNum:  s.lastEntry + 1,
-		data:      data,
+		packetType: PtEntry,
+		length:     1 + 4 + 4 + 8 + uint32(len(data)),
+		entryType:  etype,
+		entryNum:   s.lastEntry + 1,
+		data:       data,
 	}
 
 	err := s.fs.AddFileEntry(e)
@@ -192,14 +192,16 @@ func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error
 	return s.lastEntry, nil
 }
 
-func (s *StreamServer) CommitStreamTx() error {
+func (s *StreamServer) CommitAtomicOp() error {
 	log.Debug("!!!Commit Tx")
 	s.tx.status = txCommitting
-	// TODO: work
+
 	err := s.fs.writeHeaderEntry()
 	if err != nil {
 		return err
 	}
+
+	// Do the broadcast
 
 	s.tx.status = txNone
 	return nil
@@ -258,10 +260,10 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	byteSlice := []byte(errorStr)
 
 	entry := ResultEntry{
-		isEntry:  0xff,
-		length:   1 + 4 + 4 + uint32(len(byteSlice)),
-		errorNum: errorNum,
-		errorStr: byteSlice,
+		packetType: PtResult,
+		length:     1 + 4 + 4 + uint32(len(byteSlice)),
+		errorNum:   errorNum,
+		errorStr:   byteSlice,
 	}
 	PrintResultEntry(entry) // TODO: remove
 
@@ -308,7 +310,7 @@ func readFullUint64(reader *bufio.Reader) (uint64, error) {
 // Encode/convert from an entry type to binary bytes slice
 func encodeResultEntryToBinary(e ResultEntry) []byte {
 	be := make([]byte, 1)
-	be[0] = e.isEntry
+	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.length)
 	be = binary.BigEndian.AppendUint32(be, e.errorNum)
 	be = append(be, e.errorStr...)
@@ -324,7 +326,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 		return e, errors.New("invalid binary result entry")
 	}
 
-	e.isEntry = b[0]
+	e.packetType = b[0]
 	e.length = binary.BigEndian.Uint32(b[1:5])
 	e.errorNum = binary.BigEndian.Uint32(b[5:9])
 	e.errorStr = b[9:]
@@ -339,7 +341,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 
 func PrintResultEntry(e ResultEntry) {
 	log.Debug("--- RESULT ENTRY -------------------------")
-	log.Debugf("isEntry: [%d]", e.isEntry)
+	log.Debugf("packetType: [%d]", e.packetType)
 	log.Debugf("length: [%d]", e.length)
 	log.Debugf("errorNum: [%d]", e.errorNum)
 	log.Debugf("errorStr: [%s]", e.errorStr)

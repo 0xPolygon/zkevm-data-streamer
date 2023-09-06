@@ -33,7 +33,7 @@ func main() {
 	}
 
 	// Start tx
-	err = s.StartStreamTx()
+	err = s.StartAtomicOp()
 	if err != nil {
 		log.Error(">> App error! StartStreamTx")
 		return
@@ -50,7 +50,7 @@ func main() {
 	}
 
 	// Commit tx
-	err = s.CommitStreamTx()
+	err = s.CommitAtomicOp()
 	if err != nil {
 		log.Error(">> App error! CommitStreamTx")
 		return
