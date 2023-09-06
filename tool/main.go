@@ -121,7 +121,7 @@ func start(cliCtx *cli.Context) error {
 			break
 		}
 		// Get transactions for all the retrieved l2 blocks
-		l2Transactions, err := stateDB.GetL2Transactions(cliCtx.Context, l2blocks[0].BlockNum, l2blocks[len(l2blocks)-1].BlockNum)
+		l2Transactions, err := stateDB.GetL2Transactions(cliCtx.Context, l2blocks[0].L2BlockNumber, l2blocks[len(l2blocks)-1].L2BlockNumber)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -137,13 +137,13 @@ func start(cliCtx *cli.Context) error {
 				log.Fatal(err)
 			}
 
-			if l2Transactions[x].BlockNum == l2block.BlockNum {
+			if l2Transactions[x].BatchNumber == l2block.BatchNumber {
 				entry, err = streamServer.AddStreamEntry(2, l2Transactions[x].Encode())
 				if err != nil {
 					log.Fatal(err)
 				}
 			} else {
-				log.Fatalf("Mismatch between l2 block and transaction: %d != %d", l2Transactions[x].BlockNum, l2block.BlockNum)
+				log.Fatalf("Mismatch between l2 batch and transaction: %d != %d", l2Transactions[x].BatchNumber, l2block.BatchNumber)
 			}
 		}
 		err = streamServer.CommitStreamTx()
