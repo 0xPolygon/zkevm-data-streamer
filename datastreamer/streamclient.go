@@ -6,67 +6,125 @@ import (
 	"errors"
 	"io"
 	"net"
-	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
 
-const (
-	server = "127.0.0.1:1337"
-)
-
-// For Development
-func NewClient(i int) {
-	// Connect to server
-	conn, err := net.Dial("tcp", server)
-	if err != nil {
-		log.Error("**Error connecting to server:", server, err)
-		return
-	}
-
-	defer conn.Close()
-	log.Info("**Connected to server:", server)
-
-	// Send the command and stream type
-	err = writeFullUint64(uint64(i), conn)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	err = writeFullUint64(StSequencer, conn)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-
-	// Read server result entry for the command
-	_, err = readResultEntry(conn)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-
-	// Read from server
-	readFromServer(conn)
+type StreamClient struct {
+	server string
+	conn   net.Conn
+	id     string
 }
 
-func readFromServer(conn net.Conn) {
-	client := conn.LocalAddr().String()
-	buffer := make([]byte, 1024)
+func NewClient(server string) (StreamClient, error) {
+	// Create the client data stream
+	c := StreamClient{
+		server: server,
+		id:     "",
+	}
+	return c, nil
+}
+
+func (c *StreamClient) Start() error {
+	// Connect to server
+	var err error
+	c.conn, err = net.Dial("tcp", c.server)
+	if err != nil {
+		log.Error("Error connecting to server: ", c.server, err)
+		return err
+	}
+
+	c.id = c.conn.LocalAddr().String()
+	log.Infof("%s Connected to server: %s", c.id, c.server)
+	return nil
+}
+
+func (c *StreamClient) ExecCommand(cmd Command) error {
+	// Send command
+	err := writeFullUint64(uint64(cmd), c.conn)
+	if err != nil {
+		log.Errorf("%s ", c.id, err)
+		return err
+	}
+	// Send stream type
+	err = writeFullUint64(StSequencer, c.conn)
+	if err != nil {
+		log.Errorf("%s ", c.id, err)
+		return err
+	}
+	// Read server result entry for the command
+	r, err := c.readResultEntry()
+	if err != nil {
+		log.Errorf("%s ", c.id, err)
+		return err
+	}
+
+	log.Infof("%s Result %d[%s] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
+
+	// Streaming receive goroutine
+	if cmd == CmdStart {
+		go c.streamingReceive()
+	}
+
+	return nil
+}
+
+func (c *StreamClient) streamingReceive() {
+	defer c.conn.Close()
+
 	for {
-		n, err := conn.Read(buffer)
+		// Wait next data entry streamed
+		d, err := c.readDataEntry()
 		if err != nil {
-			if err == io.EOF {
-				log.Errorf("**client %s: no more data", client)
-				return
-			}
-			log.Errorf("**client %s:error reading from server:%s", client, err)
-			time.Sleep(2 * time.Second)
-			continue
+			return
 		}
 
-		log.Infof("**client %s:message from server:[%s]", client, buffer[:n])
+		log.Infof("%s Received entry number %d: ", c.id, d.entryNum)
 	}
+}
+
+func (c *StreamClient) readDataEntry() (FileEntry, error) {
+	d := FileEntry{}
+	reader := bufio.NewReader(c.conn)
+
+	// Read fixed size fields
+	buffer := make([]byte, FixedSizeFileEntry)
+	_, err := io.ReadFull(reader, buffer)
+	if err != nil {
+		if err == io.EOF {
+			log.Errorf("%s Server close connection", c.id)
+		} else {
+			log.Errorf("%s Error reading from server: ", c.id, err)
+		}
+		return d, err
+	}
+
+	// Read variable field (data)
+	length := binary.BigEndian.Uint32(buffer[1:5])
+	if length < FixedSizeFileEntry {
+		log.Errorf("%s Error reading data entry", c.id)
+		return d, errors.New("error reading data entry")
+	}
+
+	bufferAux := make([]byte, length-FixedSizeFileEntry)
+	_, err = io.ReadFull(reader, bufferAux)
+	if err != nil {
+		if err == io.EOF {
+			log.Errorf("%s Server close connection", c.id)
+		} else {
+			log.Errorf("%s Error reading from server: ", c.id, err)
+		}
+		return d, err
+	}
+	buffer = append(buffer, bufferAux...)
+
+	// Decode binary data entry
+	d, err = DecodeBinaryToFileEntry(buffer)
+	if err != nil {
+		return d, err
+	}
+
+	return d, nil
 }
 
 func writeFullUint64(value uint64, conn net.Conn) error {
@@ -75,42 +133,42 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 
 	_, err := conn.Write(buffer)
 	if err != nil {
-		log.Error("**Error sending to server:", err)
+		log.Errorf("%s Error sending to server: ", conn.RemoteAddr().String(), err)
 		return err
 	}
 	return nil
 }
 
-func readResultEntry(conn net.Conn) (ResultEntry, error) {
+func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	e := ResultEntry{}
-	reader := bufio.NewReader(conn)
+	reader := bufio.NewReader(c.conn)
 
-	// Read fixed fields (packetType 1byte, length 4bytes, errNum 4bytes)
-	buffer := make([]byte, 9)
+	// Read fixed size fields
+	buffer := make([]byte, FixedSizeResultEntry)
 	_, err := io.ReadFull(reader, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Warn("**Server close connection")
+			log.Errorf("%s Server close connection", c.id)
 		} else {
-			log.Error("**Error reading from server:", err)
+			log.Errorf("%s Error reading from server: ", c.id, err)
 		}
 		return e, err
 	}
 
 	// Read variable field (errStr)
 	length := binary.BigEndian.Uint32(buffer[1:5])
-	if length < 10 {
-		log.Error("**Error reading result entry")
+	if length < FixedSizeResultEntry {
+		log.Errorf("%s Error reading result entry", c.id)
 		return e, errors.New("error reading result entry")
 	}
 
-	bufferAux := make([]byte, length-9)
+	bufferAux := make([]byte, length-FixedSizeResultEntry)
 	_, err = io.ReadFull(reader, bufferAux)
 	if err != nil {
 		if err == io.EOF {
-			log.Warn("**Server close connection")
+			log.Errorf("%s Server close connection", c.id)
 		} else {
-			log.Error("**Error reading from server:", err)
+			log.Errorf("%s Error reading from server: ", c.id, err)
 		}
 		return e, err
 	}
