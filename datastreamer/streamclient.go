@@ -52,6 +52,13 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		log.Errorf("%s ", c.id, err)
 		return err
 	}
+
+	// Manage each command type
+	err = c.manageCommand(cmd)
+	if err != nil {
+		return err
+	}
+
 	// Read server result entry for the command
 	r, err := c.readResultEntry()
 	if err != nil {
@@ -69,6 +76,24 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	return nil
 }
 
+func (c *StreamClient) manageCommand(cmd Command) error {
+	var err error
+
+	switch cmd {
+	case CmdHeader:
+	case CmdStart:
+		// Send from entry number
+		err = writeFullUint64(StSequencer, c.conn)
+		if err != nil {
+			log.Errorf("%s ", c.id, err)
+			return err
+		}
+	case CmdStop:
+	default:
+	}
+	return nil
+}
+
 func (c *StreamClient) streamingReceive() {
 	defer c.conn.Close()
 
@@ -79,7 +104,7 @@ func (c *StreamClient) streamingReceive() {
 			return
 		}
 
-		log.Infof("%s Received entry number %d: ", c.id, d.entryNum)
+		log.Debugf("(%s) %d | %d | %d | %d", c.id, d.packetType, d.length, d.entryType, d.entryNum)
 	}
 }
 

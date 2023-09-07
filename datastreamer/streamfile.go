@@ -371,7 +371,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 		// Add new data pages to the file
 		if f.header.totalLength == f.maxLength {
-			log.Debug("== FULL FILE -> extending!")
+			log.Info("== FULL FILE -> extending!")
 			err = f.extendFile()
 			if err != nil {
 				return err
@@ -386,8 +386,6 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 				return err
 			}
 		}
-	} else {
-		log.Debug("== Entry fits")
 	}
 
 	// Write the entry
@@ -408,7 +406,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	f.header.totalLength = f.header.totalLength + entryLength
 	f.header.totalEntries = f.header.totalEntries + 1
 
-	printHeaderEntry(f.header)
+	// printHeaderEntry(f.header)
 	return nil
 }
 
