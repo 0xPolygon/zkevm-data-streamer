@@ -27,4 +27,3 @@
         - name: Test
           run: make test
           working-directory: test
-    
