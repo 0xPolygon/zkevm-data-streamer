@@ -198,11 +198,6 @@ func (s *StreamServer) StartAtomicOp() error {
 }
 
 func (s *StreamServer) AddStreamEntry(etype EntryType, data []uint8) (uint64, error) {
-	// Log entity example
-	entity := s.entriesDefinition[etype]
-	log.Info(entity.toString(data))
-
-	log.Debug("!!!Add entry")
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtEntry,
