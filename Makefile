@@ -24,6 +24,10 @@ run-server: ## Runs the data streamer server
 run-tool: ## Runs the tool to populate the binary file
 	go run tool/main.go run -cfg tool/config/tool.config.toml
 
+.PHONY: test
+test:
+	go test -count=1 -short -race -p 1 -timeout 60s ./...
+
 ## Help display.
 ## Pulls comments from beside commands and prints a nicely formatted
 ## display with the commands and their usage information.

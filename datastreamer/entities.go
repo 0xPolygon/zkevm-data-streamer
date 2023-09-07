@@ -9,7 +9,6 @@ import (
 type EntityDefinition struct {
 	Name       string
 	StreamType StreamType
-	EntryType  EntryType
 	Definition reflect.Type
 }
 
