@@ -11,6 +11,13 @@ import (
 )
 
 func main() {
+	// Set log level
+	log.Init(log.Config{
+		Environment: "development",
+		Level:       "debug",
+		Outputs:     []string{"stdout"},
+	})
+
 	log.Info(">> App begin")
 
 	// Create server stream
@@ -45,13 +52,12 @@ func main() {
 	}
 
 	// Add stream entries
-	for i := 1; i <= 3; i++ {
-		entry, err := s.AddStreamEntry(1, data)
+	for i := 1; i <= 5; i++ {
+		_, err := s.AddStreamEntry(1, data)
 		if err != nil {
 			log.Error(">> App error! AddStreamEntry:", err)
 			return
 		}
-		log.Info(">> App info. Added entry:", entry)
 	}
 
 	// Commit atomic operation
@@ -73,21 +79,18 @@ func main() {
 
 func startNewClient() {
 	// Create client
-	log.Debug("### New client")
 	c, err := datastreamer.NewClient("127.0.0.1:1337")
 	if err != nil {
 		return
 	}
 
 	// Start client (connect to the server)
-	log.Debug("### Start client")
 	err = c.Start()
 	if err != nil {
 		return
 	}
 
 	// Start streaming receive (execute command Start)
-	log.Debug("### Send Start command client")
 	err = c.ExecCommand(datastreamer.CmdStart)
 	if err != nil {
 		return
