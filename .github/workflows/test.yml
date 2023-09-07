@@ -1,5 +1,5 @@
 ---
-    name: Test non-e2e
+    name: Test
     on:
       push:
         branches:
