@@ -28,11 +28,11 @@ const (
 )
 
 type HeaderEntry struct {
-	packetType   uint8  // 1:Header
-	headLength   uint32 // 29
-	streamType   uint64 // 1:Sequencer
-	totalLength  uint64 // Total bytes used in the file
-	totalEntries uint64 // Total number of data entries (entry type 2)
+	packetType   uint8      // 1:Header
+	headLength   uint32     // 29
+	streamType   StreamType // 1:Sequencer
+	totalLength  uint64     // Total bytes used in the file
+	totalEntries uint64     // Total number of data entries (entry type 2)
 }
 
 type FileEntry struct {
@@ -47,13 +47,13 @@ type StreamFile struct {
 	fileName   string
 	pageSize   uint32 // in bytes
 	file       *os.File
-	streamType uint64
+	streamType StreamType
 	maxLength  uint64 // File size
 
 	header HeaderEntry
 }
 
-func PrepareStreamFile(fn string, st uint64) (StreamFile, error) {
+func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
 		pageSize:   pageSize,
@@ -275,7 +275,7 @@ func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.headLength)
-	be = binary.BigEndian.AppendUint64(be, e.streamType)
+	be = binary.BigEndian.AppendUint64(be, uint64(e.streamType))
 	be = binary.BigEndian.AppendUint64(be, e.totalLength)
 	be = binary.BigEndian.AppendUint64(be, e.totalEntries)
 	return be
@@ -292,7 +292,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 
 	e.packetType = b[0]
 	e.headLength = binary.BigEndian.Uint32(b[1:5])
-	e.streamType = binary.BigEndian.Uint64(b[5:13])
+	e.streamType = StreamType(binary.BigEndian.Uint64(b[5:13]))
 	e.totalLength = binary.BigEndian.Uint64(b[13:21])
 	e.totalEntries = binary.BigEndian.Uint64(b[21:29])
 

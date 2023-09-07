@@ -112,17 +112,13 @@ func (db *StateDB) GetL2Transactions(ctx context.Context, minL2Block, maxL2Block
 
 func scanL2Transaction(row pgx.Row) (*L2Transaction, error) {
 	l2Transaction := L2Transaction{}
-	var (
-		encodedStr string
-	)
 	if err := row.Scan(
 		&l2Transaction.EffectiveGasPricePercentage,
-		&encodedStr,
+		&l2Transaction.Encoded,
 		&l2Transaction.BatchNumber,
 	); err != nil {
 		return &l2Transaction, err
 	}
-	l2Transaction.Encoded = common.Hex2Bytes(encodedStr)
 	l2Transaction.EncodedLength = uint32(len(l2Transaction.Encoded))
 	l2Transaction.IsValid = 1
 	return &l2Transaction, nil

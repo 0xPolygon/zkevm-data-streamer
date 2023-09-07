@@ -4,9 +4,20 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/ethereum/go-ethereum/common"
 )
 
+const (
+	// StreamTypeSequencer represents a Sequencer stream
+	StreamTypeSequencer datastreamer.StreamType = 1
+	// EntryTypeL2Block represents a L2 block
+	EntryTypeL2Block datastreamer.EntryType = 1
+	// EntryTypeL2Tx represents a L2 transaction
+	EntryTypeL2Tx datastreamer.EntryType = 2
+)
+
+// L2Block represents a L2 block
 type L2Block struct {
 	BatchNumber    uint64
 	L2BlockNumber  uint64
@@ -21,6 +32,7 @@ func (b L2Block) Encode() []byte {
 	return (*(*[size]byte)(unsafe.Pointer(&b)))[:]
 }
 
+// L2Transaction represents a L2 transaction
 type L2Transaction struct {
 	BatchNumber                 uint64
 	EffectiveGasPricePercentage uint8
@@ -33,4 +45,9 @@ type L2Transaction struct {
 func (l L2Transaction) Encode() []byte {
 	const size = int(unsafe.Sizeof(L2Transaction{}))
 	return (*(*[size]byte)(unsafe.Pointer(&l)))[:]
+}
+
+// DecodeL2Transaction decodes a byte slice into a L2Transaction
+func DecodeL2Transaction(data []byte) L2Transaction {
+	return *(*L2Transaction)(unsafe.Pointer(&data[0]))
 }
