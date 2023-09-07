@@ -11,8 +11,8 @@ Main reviewers:
 
 <!-- Main reviewers should do a full review. There should be 2 main reviewers, unless there is a good reason for not to do it -->
 
-- @John
-- @Doe
+- @-John
+- @-Doe
 
 Codeowner reviewers:
 
