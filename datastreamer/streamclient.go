@@ -77,7 +77,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 }
 
 func (c *StreamClient) manageCommand(cmd Command) error {
-	var err error = nil
+	var err error
 
 	switch cmd {
 	case CmdHeader:
