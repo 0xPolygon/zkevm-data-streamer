@@ -28,9 +28,10 @@ const (
 	CmdHeader Command = 3
 
 	// Client status
-	csStarted ClientStatus = 1
-	csStopped ClientStatus = 2
-	csKilled  ClientStatus = 0xff
+	csStarting ClientStatus = 1
+	csStarted  ClientStatus = 2
+	csStopped  ClientStatus = 3
+	csKilled   ClientStatus = 0xff
 
 	// Atomic operation status
 	aoNone        AOStatus = 0
@@ -41,6 +42,15 @@ const (
 	// Entry types (events)
 	EtStartL2Block EntryType = 1
 	EtExecuteL2Tx  EntryType = 2
+)
+
+var (
+	StrClientStatus = map[ClientStatus]string{
+		csStarting: "Starting",
+		csStarted:  "Started",
+		csStopped:  "Stopped",
+		csKilled:   "Killed",
+	}
 )
 
 type StreamServer struct {
@@ -148,27 +158,25 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		status: csStopped,
 	}
 
-	cli := s.clients[clientId]
-
 	reader := bufio.NewReader(conn)
 	for {
 		// Read command
 		command, err := readFullUint64(reader)
 		if err != nil {
-			cli.status = csKilled
-			return //TODO
+			s.killClient(clientId)
+			return
 		}
 		// Read stream type
 		st, err := readFullUint64(reader)
 		if err != nil {
-			cli.status = csKilled
-			return //TODO
+			s.killClient(clientId)
+			return
 		}
 		// Check stream type
 		if st != s.streamType {
 			log.Error("Mismatch stream type, killed: ", clientId)
-			cli.status = csKilled
-			return //TODO
+			s.killClient(clientId)
+			return
 		}
 
 		// Manage the requested command
@@ -176,7 +184,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
-			cli.status = csKilled
+			s.killClient(clientId)
 			return
 		}
 	}
@@ -243,7 +251,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 	// For each connected and started client
 	log.Debug("Broadcast clients length: ", len(s.clients))
 	for id, cli := range s.clients {
-		log.Infof("Client %s status %d", id, cli.status)
+		log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 		if cli.status != csStarted {
 			continue
 		}
@@ -258,19 +266,26 @@ func (s *StreamServer) broadcastAtomicOp() {
 			// Send the file data entry
 			_, err := writer.Write(binaryEntry)
 			if err != nil {
-				log.Error("Error sending file entry")
-				// TODO: kill client
+				// Kill client connection
+				log.Errorf("Error sending entry to %s", id)
+				s.killClient(id)
 			}
 
 			// Flush buffers
 			err = writer.Flush()
 			if err != nil {
-				log.Error("Error flushing socket data entry")
+				log.Errorf("Error flushing socket data to %s", id)
+				s.killClient(id)
 			}
 		}
 	}
 
 	s.atomicOp.status = aoNone
+}
+
+func (s *StreamServer) killClient(clientId string) {
+	s.clients[clientId].status = csKilled
+	s.clients[clientId].conn.Close()
 }
 
 func (s *StreamServer) processCommand(command Command, clientId string) error {
@@ -286,8 +301,12 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 			log.Error("Stream to client already started!")
 			err = errors.New("client already started")
 		} else {
-			cli.status = csStarted
-			// TODO
+			// Perform work of start command
+			cli.status = csStarting
+			err = s.processCmdStart(clientId)
+			if err == nil {
+				cli.status = csStarted
+			}
 		}
 
 	case CmdStop:
@@ -320,6 +339,20 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	return err
 }
 
+func (s *StreamServer) processCmdStart(clientId string) error {
+	// Read from entry number parameter
+	reader := bufio.NewReader(s.clients[clientId].conn)
+	fromEntry, err := readFullUint64(reader)
+	if err != nil {
+		s.killClient(clientId)
+		return err
+	}
+
+	log.Infof("Starting entry %d for client %s", fromEntry, clientId)
+
+	return nil
+}
+
 // Send the response to a command that is a result entry
 func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientId string) error {
 	// Prepare the result entry
@@ -342,10 +375,12 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	writer := bufio.NewWriter(conn)
 	_, err := writer.Write(binaryEntry)
 	if err != nil {
-		log.Error("Error sending result entry")
+		log.Errorf("Error sending result entry to %s", clientId)
+		s.killClient(clientId)
+		return err
 	}
-	writer.Flush()
 
+	writer.Flush()
 	return nil
 }
 
