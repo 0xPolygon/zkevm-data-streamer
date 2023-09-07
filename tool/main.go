@@ -79,16 +79,14 @@ func start(cliCtx *cli.Context) error {
 
 	// Set entities definition
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		datastreamer.EtStartL2Block: {
+		db.EntryTypeL2Block: {
 			Name:       "L2Block",
 			StreamType: db.StreamTypeSequencer,
-			EntryType:  db.EntryTypeL2Block,
 			Definition: reflect.TypeOf(db.L2Block{}),
 		},
-		datastreamer.EtExecuteL2Tx: {
+		db.EntryTypeL2Tx: {
 			Name:       "L2Transaction",
 			StreamType: db.StreamTypeSequencer,
-			EntryType:  db.EntryTypeL2Tx,
 			Definition: reflect.TypeOf(db.L2Transaction{}),
 		},
 	}
