@@ -8,7 +8,7 @@ User = "state_user"
 Password = "state_password"
 Name = "state_db"
 Host = "localhost"
-Port = "5432"
+Port = "5433"
 EnableLog = false	
 MaxConns = 200
 
