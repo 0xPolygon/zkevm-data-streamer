@@ -17,6 +17,7 @@ type Command uint64
 type ClientStatus uint64
 type AOStatus uint64
 type EntryType uint32
+type StreamType uint64
 
 const (
 	// Stream type
@@ -57,13 +58,15 @@ type StreamServer struct {
 	port     uint16 // server stream port
 	fileName string // stream file name
 
-	streamType uint64
+	streamType StreamType
 	ln         net.Listener
 	clients    map[string]*client
 
 	lastEntry uint64
 	atomicOp  streamAO
 	sf        StreamFile
+
+	entriesDefinition map[EntryType]EntityDefinition
 }
 
 type streamAO struct {
@@ -131,6 +134,10 @@ func (s *StreamServer) Start() error {
 	return nil
 }
 
+func (s *StreamServer) SetEntriesDefinition(entriesDefinition map[EntryType]EntityDefinition) {
+	s.entriesDefinition = entriesDefinition
+}
+
 func (s *StreamServer) waitConnections() {
 	defer s.ln.Close()
 
@@ -167,11 +174,13 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 			return
 		}
 		// Read stream type
-		st, err := readFullUint64(reader)
+		stUint64, err := readFullUint64(reader)
 		if err != nil {
 			s.killClient(clientId)
 			return
 		}
+		st := StreamType(stUint64)
+
 		// Check stream type
 		if st != s.streamType {
 			log.Error("Mismatch stream type, killed: ", clientId)
@@ -197,8 +206,15 @@ func (s *StreamServer) StartAtomicOp() error {
 	return nil
 }
 
-func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
-	log.Debugf("!!!Add entry %d", s.lastEntry+1)
+func (s *StreamServer) AddStreamEntry(etype EntryType, data []uint8) (uint64, error) {
+	// Log entity example
+	entity := s.entriesDefinition[etype]
+	if entity.Name != "" {
+		log.Info(entity.toString(data))
+	} else {
+		log.Warn("entry definition does not exist")
+	}
+
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtEntry,

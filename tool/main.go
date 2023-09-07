@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"reflect"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
@@ -76,6 +77,24 @@ func start(cliCtx *cli.Context) error {
 		log.Fatal(err)
 	}
 
+	// Set entities definition
+	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
+		datastreamer.EtStartL2Block: {
+			Name:       "L2Block",
+			StreamType: db.StreamTypeSequencer,
+			EntryType:  db.EntryTypeL2Block,
+			Definition: reflect.TypeOf(db.L2Block{}),
+		},
+		datastreamer.EtExecuteL2Tx: {
+			Name:       "L2Transaction",
+			StreamType: db.StreamTypeSequencer,
+			EntryType:  db.EntryTypeL2Tx,
+			Definition: reflect.TypeOf(db.L2Transaction{}),
+		},
+	}
+
+	streamServer.SetEntriesDefinition(entriesDefinition)
+
 	// Connect to the database
 	stateSqlDB, err := db.NewSQLDB(c.StateDB)
 	if err != nil {
@@ -91,6 +110,10 @@ func start(cliCtx *cli.Context) error {
 	l2blocks, err = stateDB.GetL2Blocks(cliCtx.Context, 1, 0)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if len(l2blocks) == 0 {
+		log.Fatal("No genesis block found")
 	}
 
 	err = streamServer.StartAtomicOp()
