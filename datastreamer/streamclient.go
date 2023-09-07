@@ -79,7 +79,7 @@ func (c *StreamClient) streamingReceive() {
 			return
 		}
 
-		log.Infof("%s Received entry number %d: ", c.id, d.entryNum)
+		log.Debugf("(%s) %d | %d | %d | %d", c.id, d.packetType, d.length, d.entryType, d.entryNum)
 	}
 }
 

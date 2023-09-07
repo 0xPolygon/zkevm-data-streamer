@@ -33,9 +33,10 @@ const (
 	csKilled  ClientStatus = 0xff
 
 	// Atomic operation status
-	aoNone       AOStatus = 0
-	aoStarted    AOStatus = 1
-	aoCommitting AOStatus = 2
+	aoNone        AOStatus = 0
+	aoStarted     AOStatus = 1
+	aoCommitting  AOStatus = 2
+	aoRollbacking AOStatus = 3
 
 	// Entry types (events)
 	EtStartL2Block EntryType = 1
@@ -189,7 +190,7 @@ func (s *StreamServer) StartAtomicOp() error {
 }
 
 func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error) {
-	log.Debug("!!!Add entry")
+	log.Debugf("!!!Add entry %d", s.lastEntry+1)
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtEntry,
@@ -214,7 +215,7 @@ func (s *StreamServer) AddStreamEntry(etype uint32, data []uint8) (uint64, error
 }
 
 func (s *StreamServer) CommitAtomicOp() error {
-	log.Debug("!!!Commit Tx")
+	log.Debug("!!!Commit AtomicOp")
 	s.atomicOp.status = aoCommitting
 
 	// Update header in the file (commit new entries)
@@ -229,11 +230,20 @@ func (s *StreamServer) CommitAtomicOp() error {
 	return nil
 }
 
+func (s *StreamServer) RollbackAtomicOp() error {
+	log.Debug("!!!Rollback AtomicOp")
+	s.atomicOp.status = aoRollbacking
+
+	// TODO: work
+
+	return nil
+}
+
 func (s *StreamServer) broadcastAtomicOp() {
 	// For each connected and started client
 	log.Debug("Broadcast clients length: ", len(s.clients))
 	for id, cli := range s.clients {
-		log.Debugf("Client %s status %d", id, cli.status)
+		log.Infof("Client %s status %d", id, cli.status)
 		if cli.status != csStarted {
 			continue
 		}
@@ -242,17 +252,22 @@ func (s *StreamServer) broadcastAtomicOp() {
 		log.Debug("Streaming to: ", id)
 		writer := bufio.NewWriter(cli.conn)
 		for _, entry := range s.atomicOp.entries {
-			log.Debug("Sending data entry: ", entry.entryNum)
+			log.Debugf("Sending data entry %d to %s", entry.entryNum, id)
 			binaryEntry := encodeFileEntryToBinary(entry)
 
-			// Send the file entry
+			// Send the file data entry
 			_, err := writer.Write(binaryEntry)
 			if err != nil {
 				log.Error("Error sending file entry")
 				// TODO: kill client
 			}
+
+			// Flush buffers
+			err = writer.Flush()
+			if err != nil {
+				log.Error("Error flushing socket data entry")
+			}
 		}
-		writer.Flush()
 	}
 
 	s.atomicOp.status = aoNone
@@ -316,7 +331,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 		errorNum:   errorNum,
 		errorStr:   byteSlice,
 	}
-	PrintResultEntry(entry) // TODO: remove
+	// PrintResultEntry(entry) // TODO: remove
 
 	// Convert struct to binary bytes
 	binaryEntry := encodeResultEntryToBinary(entry)
