@@ -202,6 +202,8 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []uint8) (uint64, er
 	entity := s.entriesDefinition[etype]
 	if entity.Name != "" {
 		log.Info(entity.toString(data))
+	} else {
+		log.Warn("entry definition does not exist")
 	}
 
 	// Generate data entry
