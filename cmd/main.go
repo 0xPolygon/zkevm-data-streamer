@@ -10,6 +10,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/tool/db"
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -28,6 +29,31 @@ func main() {
 		Outputs:     []string{"stdout"},
 	})
 
+	app := cli.NewApp()
+
+	app.Commands = []*cli.Command{
+		{
+			Name:    "server",
+			Aliases: []string{"v"},
+			Usage:   "Run the server",
+			Action:  runServer,
+		},
+		{
+			Name:    "client",
+			Aliases: []string{},
+			Usage:   "Run the client",
+			Action:  runClient,
+		},
+	}
+
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+}
+
+func runServer(*cli.Context) error {
 	log.Info(">> App begin")
 
 	// Create stream server
@@ -55,14 +81,8 @@ func main() {
 	err = s.Start()
 	if err != nil {
 		log.Error(">> App error! Start")
-		return
+		return err
 	}
-
-	// Create and start clients
-	go startNewClient()
-	go startNewClient()
-
-	// time.Sleep(2 * time.Second)
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
@@ -112,24 +132,28 @@ func main() {
 	<-interruptSignal
 
 	log.Info(">> App end")
+
+	return nil
 }
 
-func startNewClient() {
+func runClient(*cli.Context) error {
 	// Create client
 	c, err := datastreamer.NewClient("127.0.0.1:1337", StSequencer)
 	if err != nil {
-		return
+		return err
 	}
 
 	// Start client (connect to the server)
 	err = c.Start()
 	if err != nil {
-		return
+		return err
 	}
 
 	// Start streaming receive (execute command Start)
 	err = c.ExecCommand(datastreamer.CmdStart)
 	if err != nil {
-		return
+		return err
 	}
+
+	return nil
 }
