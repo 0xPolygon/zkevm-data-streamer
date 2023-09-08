@@ -21,9 +21,6 @@ type StreamType uint64
 type CommandError uint32
 
 const (
-	// Stream type
-	StSequencer = 1 // Sequencer
-
 	// Commands
 	CmdStart  Command = 1
 	CmdStop   Command = 2
@@ -46,10 +43,6 @@ const (
 	aoStarted     AOStatus = 1
 	aoCommitting  AOStatus = 2
 	aoRollbacking AOStatus = 3
-
-	// Entry types (events)
-	EtStartL2Block EntryType = 1
-	EtExecuteL2Tx  EntryType = 2
 )
 
 var (
@@ -107,13 +100,13 @@ type ResultEntry struct {
 	errorStr   []byte
 }
 
-func New(port uint16, fileName string) (StreamServer, error) {
+func New(port uint16, streamType StreamType, fileName string) (StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:     port,
 		fileName: fileName,
 
-		streamType: StSequencer,
+		streamType: streamType,
 		ln:         nil,
 		clients:    make(map[string]*client),
 		lastEntry:  0,

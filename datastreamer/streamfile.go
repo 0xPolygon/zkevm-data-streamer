@@ -340,7 +340,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 	} else if f.header.headLength != headerSize {
 		log.Error("Invalid header: bad header length")
 		err = errors.New("invalid header bad header length")
-	} else if f.header.streamType != StSequencer {
+	} else if f.header.streamType != f.streamType {
 		log.Error("Invalid header: bad stream type")
 		err = errors.New("invalid header bad stream type")
 	}

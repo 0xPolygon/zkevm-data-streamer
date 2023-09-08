@@ -11,16 +11,18 @@ import (
 )
 
 type StreamClient struct {
-	server string
-	conn   net.Conn
-	id     string
+	server     string
+	streamType StreamType
+	conn       net.Conn
+	id         string
 }
 
-func NewClient(server string) (StreamClient, error) {
+func NewClient(server string, streamType StreamType) (StreamClient, error) {
 	// Create the client data stream
 	c := StreamClient{
-		server: server,
-		id:     "",
+		server:     server,
+		streamType: streamType,
+		id:         "",
 	}
 	return c, nil
 }
@@ -47,7 +49,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		return err
 	}
 	// Send stream type
-	err = writeFullUint64(StSequencer, c.conn)
+	err = writeFullUint64(uint64(c.streamType), c.conn)
 	if err != nil {
 		log.Errorf("%s %v", c.id, err)
 		return err

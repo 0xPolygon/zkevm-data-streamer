@@ -12,6 +12,14 @@ import (
 	"github.com/0xPolygonHermez/zkevm-data-streamer/tool/db"
 )
 
+const (
+	// Entry types (events)
+	EtStartL2Block datastreamer.EntryType = 1
+	EtExecuteL2Tx  datastreamer.EntryType = 2
+
+	StSequencer = 1
+)
+
 func main() {
 	// Set log level
 	log.Init(log.Config{
@@ -23,23 +31,21 @@ func main() {
 	log.Info(">> App begin")
 
 	// Create stream server
-	s, err := datastreamer.New(1337, "streamfile.bin")
+	s, err := datastreamer.New(1337, StSequencer, "streamfile.bin")
 	if err != nil {
 		os.Exit(1)
 	}
 
 	// Set data entries definition
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		datastreamer.EtStartL2Block: {
+		EtStartL2Block: {
 			Name:       "L2Block",
 			StreamType: db.StreamTypeSequencer,
-			EntryType:  db.EntryTypeL2Block,
 			Definition: reflect.TypeOf(db.L2Block{}),
 		},
-		datastreamer.EtExecuteL2Tx: {
+		EtExecuteL2Tx: {
 			Name:       "L2Transaction",
 			StreamType: db.StreamTypeSequencer,
-			EntryType:  db.EntryTypeL2Tx,
 			Definition: reflect.TypeOf(db.L2Transaction{}),
 		},
 	}
@@ -110,7 +116,7 @@ func main() {
 
 func startNewClient() {
 	// Create client
-	c, err := datastreamer.NewClient("127.0.0.1:1337")
+	c, err := datastreamer.NewClient("127.0.0.1:1337", StSequencer)
 	if err != nil {
 		return
 	}

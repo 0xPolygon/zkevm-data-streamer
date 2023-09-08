@@ -72,7 +72,7 @@ func start(cliCtx *cli.Context) error {
 	log.Info("Starting tool")
 
 	// Create a stream server
-	streamServer, err := datastreamer.New(c.StreamServer.Port, c.StreamServer.Filename)
+	streamServer, err := datastreamer.New(c.StreamServer.Port, db.StreamTypeSequencer, c.StreamServer.Filename)
 	if err != nil {
 		log.Fatal(err)
 	}
