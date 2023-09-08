@@ -31,6 +31,7 @@ const (
 	CmdErrAlreadyStarted CommandError = 1
 	CmdErrAlreadyStopped CommandError = 2
 	CmdErrBadFromEntry   CommandError = 3
+	CmdErrInvalidCommand CommandError = 9
 
 	// Client status
 	csStarting ClientStatus = 1
@@ -206,6 +207,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
+			time.Sleep(1 * time.Second)
 			s.killClient(clientId)
 			return
 		}
@@ -314,8 +316,10 @@ func (s *StreamServer) broadcastAtomicOp() {
 }
 
 func (s *StreamServer) killClient(clientId string) {
-	s.clients[clientId].status = csKilled
-	s.clients[clientId].conn.Close()
+	if s.clients[clientId].status != csKilled {
+		s.clients[clientId].status = csKilled
+		s.clients[clientId].conn.Close()
+	}
 }
 
 func (s *StreamServer) processCommand(command Command, clientId string) error {
@@ -342,20 +346,25 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 		if cli.status != csStarted {
 			log.Error("Stream to client already stopped!")
 			err = errors.New("client already stopped")
+			_ = s.sendResultEntry(uint32(CmdErrAlreadyStopped), StrCommandErrors[CmdErrAlreadyStopped], clientId)
 		} else {
 			cli.status = csStopped
-			// TODO
+			err = s.processCmdStop(clientId)
 		}
 
 	case CmdHeader:
 		if cli.status != csStopped {
 			log.Error("Header command not allowed, stream started!")
 			err = errors.New("header command not allowed")
+			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
+		} else {
+			err = s.processCmdHeader(clientId)
 		}
 
 	default:
 		log.Error("Invalid command!")
 		err = errors.New("invalid command")
+		_ = s.sendResultEntry(uint32(CmdErrInvalidCommand), StrCommandErrors[CmdErrInvalidCommand], clientId)
 	}
 
 	return err
@@ -366,7 +375,6 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 	reader := bufio.NewReader(s.clients[clientId].conn)
 	fromEntry, err := readFullUint64(reader)
 	if err != nil {
-		s.killClient(clientId)
 		return err
 	}
 
@@ -389,6 +397,34 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 	err = s.streamingFromEntry(clientId, fromEntry)
 
 	return err
+}
+
+func (s *StreamServer) processCmdStop(clientId string) error {
+	// Send a command result entry OK
+	err := s.sendResultEntry(0, "OK", clientId)
+	return err
+}
+
+func (s *StreamServer) processCmdHeader(clientId string) error {
+	// Get current written/committed file header
+	header := s.sf.getHeaderEntry()
+	binaryHeader := encodeHeaderEntryToBinary(header)
+
+	// Send header entry to the client
+	conn := s.clients[clientId].conn
+	writer := bufio.NewWriter(conn)
+	_, err := writer.Write(binaryHeader)
+	if err != nil {
+		log.Errorf("Error sending header entry to %s: %v", clientId, err)
+		return err
+	}
+
+	err = writer.Flush()
+	if err != nil {
+		log.Errorf("Error flushing socket data to %s: %v", clientId, err)
+		return err
+	}
+	return nil
 }
 
 func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) error {
@@ -422,7 +458,11 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 		return err
 	}
 
-	writer.Flush()
+	err = writer.Flush()
+	if err != nil {
+		log.Errorf("Error flushing socket data to %s: %v", clientId, err)
+		return err
+	}
 	return nil
 }
 

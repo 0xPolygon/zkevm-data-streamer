@@ -20,7 +20,7 @@ const (
 	PtPadding = 0
 	PtHeader  = 1    // Just for the header page
 	PtEntry   = 2    // Data entry
-	PtResult  = 0xff // Not stored/present in file (for client command result)
+	PtResult  = 0xff // Not stored/present in file (just for client command result)
 
 	// Sizes
 	FixedSizeFileEntry   = 17 // 1+4+4+8
@@ -38,19 +38,20 @@ type HeaderEntry struct {
 type FileEntry struct {
 	packetType uint8     // 2:Data entry, 0:Padding, (1:Header)
 	length     uint32    // Length of the entry
-	entryType  EntryType // 1:L2 block, 2:L2 tx
+	entryType  EntryType // e.g. 1:L2 block, 2:L2 tx,...
 	entryNum   uint64    // Entry number (sequential starting with 0)
 	data       []byte
 }
 
 type StreamFile struct {
 	fileName   string
-	pageSize   uint32 // in bytes
+	pageSize   uint32 // Data page size in bytes
 	file       *os.File
 	streamType StreamType
-	maxLength  uint64 // File size
+	maxLength  uint64 // File size in bytes
 
-	header HeaderEntry
+	header      HeaderEntry // Current header in memory (atomic operation in progress)
+	writtenHead HeaderEntry // Current header written in the file
 }
 
 func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
@@ -214,13 +215,16 @@ func (f *StreamFile) extendFile() error {
 	return err
 }
 
+// Read header from file to restore the header struct
 func (f *StreamFile) readHeaderEntry() error {
+	// Position at the beginning of the file
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
 	}
 
+	// Read header stream bytes
 	binaryHeader := make([]byte, headerSize)
 	n, err := f.file.Read(binaryHeader)
 	if err != nil {
@@ -232,12 +236,20 @@ func (f *StreamFile) readHeaderEntry() error {
 		return errors.New("error getting header info")
 	}
 
+	// Convert to header struct
 	f.header, err = decodeBinaryToHeaderEntry(binaryHeader)
 	if err != nil {
 		log.Error("Error decoding binary header")
 		return err
 	}
+
+	// Current written header in file
+	f.writtenHead = f.header
 	return nil
+}
+
+func (f *StreamFile) getHeaderEntry() HeaderEntry {
+	return f.writtenHead
 }
 
 func printHeaderEntry(e HeaderEntry) {
@@ -249,25 +261,32 @@ func printHeaderEntry(e HeaderEntry) {
 	log.Debugf("totalEntries: [%d]", e.totalEntries)
 }
 
+// Write the memory header struct into the file header
 func (f *StreamFile) writeHeaderEntry() error {
+	// Position at the beginning of the file
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
 	}
 
+	// Write after convert header struct to binary stream
 	binaryHeader := encodeHeaderEntryToBinary(f.header)
 	log.Debugf("writing header entry: %v", binaryHeader)
 	_, err = f.file.Write(binaryHeader)
 	if err != nil {
 		log.Errorf("Error writing the header: %v", err)
+		return err
 	}
 	err = f.file.Sync()
 	if err != nil {
 		log.Errorf("Error flushing header data to disk: %v", err)
+		return err
 	}
 
-	return err
+	// Update the written header
+	f.writtenHead = f.header
+	return nil
 }
 
 // Encode/convert from a header entry type to binary bytes slice
@@ -310,17 +329,20 @@ func encodeFileEntryToBinary(e FileEntry) []byte {
 }
 
 func (f *StreamFile) checkFileConsistency() error {
+	// Get file info
 	info, err := os.Stat(f.fileName)
 	if err != nil {
 		log.Error("Error checking file consistency")
 		return err
 	}
 
+	// Check header page is present
 	if info.Size() < pageHeaderSize {
 		log.Error("Invalid file: missing header page")
 		return errors.New("invalid file missing header page")
 	}
 
+	// Check data pages are not cut
 	dataSize := info.Size() - pageHeaderSize
 	uncut := dataSize % int64(f.pageSize)
 	if uncut != 0 {
@@ -348,6 +370,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 	return err
 }
 
+// Write new data entry to the data stream file
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
@@ -356,21 +379,22 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		return err
 	}
 
-	// Binary entry
+	// Convert from data struct to bytes stream
 	be := encodeFileEntryToBinary(e)
 
 	// Check if the entry fits on current page
 	entryLength := uint64(len(be))
 	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
 	if entryLength > pageRemaining {
-		log.Debug("== Fill with padd entries")
-		err = f.fillPagePaddEntries()
+		log.Debug("== Fill with pad entries")
+		err = f.fillPagePadEntries()
 		if err != nil {
 			return err
 		}
 
-		// Add new data pages to the file
+		// Check if file is full
 		if f.header.totalLength == f.maxLength {
+			// Add new data pages to the file
 			log.Info("== FULL FILE -> extending!")
 			err = f.extendFile()
 			if err != nil {
@@ -388,21 +412,21 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		}
 	}
 
-	// Write the entry
+	// Write the data entry
 	_, err = f.file.Write(be)
 	if err != nil {
 		log.Errorf("Error writing the entry: %v", err)
 		return err
 	}
 
-	// Flush entry
+	// Flush data to disk
 	err = f.file.Sync()
 	if err != nil {
 		log.Errorf("Error flushing new entry to disk: %v", err)
 		return err
 	}
 
-	// Update the header just in memory (on disk when the commit arrives)
+	// Update the current header in memory (on disk later when the commit arrives)
 	f.header.totalLength = f.header.totalLength + entryLength
 	f.header.totalEntries = f.header.totalEntries + 1
 
@@ -410,36 +434,36 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	return nil
 }
 
-func (f *StreamFile) fillPagePaddEntries() error {
+// Fill remaining free space on the current data page with pad
+func (f *StreamFile) fillPagePadEntries() error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
-		log.Errorf("Error seeking fill padds position to write: %v", err)
+		log.Errorf("Error seeking fill pads position to write: %v", err)
 		return err
 	}
 
-	// Page remaining to fill with padd entries
+	// Page remaining free space
 	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
 
 	if pageRemaining > 0 {
-		// Padd entries
+		// Pad entries
 		entries := make([]byte, pageRemaining)
 		for i := 0; i < int(pageRemaining); i++ {
 			entries[i] = 0
 		}
 
-		// Write padd entries
+		// Write pad entries
 		_, err = f.file.Write(entries)
 		if err != nil {
-			log.Errorf("Error writing padd entries: %v", err)
+			log.Errorf("Error writing pad entries: %v", err)
 			return err
 		}
 
 		// Sync/flush to disk will be done outside this function
 
-		// Update the header just in memory (on disk when the commit arrives)
+		// Update the current header in memory (on disk later when the commit arrives)
 		f.header.totalLength = f.header.totalLength + pageRemaining
-		// f.header.totalEntries = f.header.totalEntries + pageRemaining
 	}
 
 	return nil

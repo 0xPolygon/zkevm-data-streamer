@@ -68,7 +68,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		return err
 	}
 
-	log.Infof("%s Result %d[%v] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
+	log.Infof("%s Result %d[%s] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
 
 	// Streaming receive goroutine
 	if cmd == CmdStart {
