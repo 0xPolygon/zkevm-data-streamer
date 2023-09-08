@@ -11,16 +11,18 @@ import (
 )
 
 type StreamClient struct {
-	server string
-	conn   net.Conn
-	id     string
+	server     string
+	streamType StreamType
+	conn       net.Conn
+	id         string
 }
 
-func NewClient(server string) (StreamClient, error) {
+func NewClient(server string, streamType StreamType) (StreamClient, error) {
 	// Create the client data stream
 	c := StreamClient{
-		server: server,
-		id:     "",
+		server:     server,
+		streamType: streamType,
+		id:         "",
 	}
 	return c, nil
 }
@@ -30,7 +32,7 @@ func (c *StreamClient) Start() error {
 	var err error
 	c.conn, err = net.Dial("tcp", c.server)
 	if err != nil {
-		log.Error("Error connecting to server: ", c.server, err)
+		log.Errorf("Error connecting to server %s: %v", c.server, err)
 		return err
 	}
 
@@ -43,13 +45,13 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	// Send command
 	err := writeFullUint64(uint64(cmd), c.conn)
 	if err != nil {
-		log.Errorf("%s ", c.id, err)
+		log.Errorf("%s %v", c.id, err)
 		return err
 	}
 	// Send stream type
-	err = writeFullUint64(StSequencer, c.conn)
+	err = writeFullUint64(uint64(c.streamType), c.conn)
 	if err != nil {
-		log.Errorf("%s ", c.id, err)
+		log.Errorf("%s %v", c.id, err)
 		return err
 	}
 
@@ -62,11 +64,11 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	// Read server result entry for the command
 	r, err := c.readResultEntry()
 	if err != nil {
-		log.Errorf("%s ", c.id, err)
+		log.Errorf("%s %v", c.id, err)
 		return err
 	}
 
-	log.Infof("%s Result %d[%s] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
+	log.Infof("%s Result %d[%v] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
 
 	// Streaming receive goroutine
 	if cmd == CmdStart {
@@ -82,12 +84,13 @@ func (c *StreamClient) manageCommand(cmd Command) error {
 	switch cmd {
 	case CmdHeader:
 	case CmdStart:
-		// Send from entry number
-		err = writeFullUint64(StSequencer, c.conn)
+		// Send the starting entry number
+		err = writeFullUint64(555, c.conn)
 		if err != nil {
-			log.Errorf("%s ", c.id, err)
+			log.Errorf("%s %v", c.id, err)
 			return err
 		}
+
 	case CmdStop:
 	default:
 	}
@@ -119,7 +122,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
 		} else {
-			log.Errorf("%s Error reading from server: ", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
 		return d, err
 	}
@@ -137,7 +140,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
 		} else {
-			log.Errorf("%s Error reading from server: ", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
 		return d, err
 	}
@@ -158,7 +161,7 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 
 	_, err := conn.Write(buffer)
 	if err != nil {
-		log.Errorf("%s Error sending to server: ", conn.RemoteAddr().String(), err)
+		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
 		return err
 	}
 	return nil
@@ -175,7 +178,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
 		} else {
-			log.Errorf("%s Error reading from server: ", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
 		return e, err
 	}
@@ -193,7 +196,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
 		} else {
-			log.Errorf("%s Error reading from server: ", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
 		return e, err
 	}

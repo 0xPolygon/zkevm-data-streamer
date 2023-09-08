@@ -84,24 +84,24 @@ func (f *StreamFile) openCreateFile() error {
 
 	if os.IsNotExist(err) {
 		// File does not exists so create it
-		log.Info("Creating file for datastream: ", f.fileName)
+		log.Infof("Creating new file for datastream: %s", f.fileName)
 		f.file, err = os.Create(f.fileName)
 
 		if err != nil {
-			log.Error("Error creating datastream file: ", f.fileName, err)
+			log.Errorf("Error creating datastream file %s: %v", f.fileName, err)
 		} else {
 			err = f.initializeFile()
 		}
 
 	} else if err == nil {
 		// File already exists
-		log.Info("File for datastream already exists: ", f.fileName)
+		log.Infof("Using existing file for datastream: %s", f.fileName)
 		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, 0666)
 		if err != nil {
-			log.Error("Error opening datastream file: ", f.fileName, err)
+			log.Errorf("Error opening datastream file %s: %v", f.fileName, err)
 		}
 	} else {
-		log.Error("Unable to check datastream file status: ", f.fileName, err)
+		log.Errorf("Unable to check datastream file status %s: %v", f.fileName, err)
 	}
 
 	if err != nil {
@@ -157,7 +157,7 @@ func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
 	err := f.createPage(pageHeaderSize)
 	if err != nil {
-		log.Error("Error creating the header page: ", err)
+		log.Errorf("Error creating the header page: %v", err)
 		return err
 	}
 
@@ -177,21 +177,21 @@ func (f *StreamFile) createPage(size uint32) error {
 	// Position at the end of the file
 	_, err := f.file.Seek(0, 2)
 	if err != nil {
-		log.Error("Error seeking the end of the file: ", err)
+		log.Errorf("Error seeking the end of the file: %v", err)
 		return err
 	}
 
 	// Write the page
 	_, err = f.file.Write(page)
 	if err != nil {
-		log.Error("Error writing a new page: ", err)
+		log.Errorf("Error writing a new page: %v", err)
 		return err
 	}
 
 	// Flush
 	err = f.file.Sync()
 	if err != nil {
-		log.Error("Error flushing new page to disk: ", err)
+		log.Errorf("Error flushing new page to disk: %v", err)
 		return err
 	}
 
@@ -217,14 +217,14 @@ func (f *StreamFile) extendFile() error {
 func (f *StreamFile) readHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
-		log.Error("Error seeking the start of the file: ", err)
+		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
 	}
 
 	binaryHeader := make([]byte, headerSize)
 	n, err := f.file.Read(binaryHeader)
 	if err != nil {
-		log.Error("Error reading the header: ", err)
+		log.Errorf("Error reading the header: %v", err)
 		return err
 	}
 	if n != headerSize {
@@ -252,19 +252,19 @@ func printHeaderEntry(e HeaderEntry) {
 func (f *StreamFile) writeHeaderEntry() error {
 	_, err := f.file.Seek(0, 0)
 	if err != nil {
-		log.Error("Error seeking the start of the file: ", err)
+		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
 	}
 
 	binaryHeader := encodeHeaderEntryToBinary(f.header)
-	log.Debug("writing header entry: ", binaryHeader)
+	log.Debugf("writing header entry: %v", binaryHeader)
 	_, err = f.file.Write(binaryHeader)
 	if err != nil {
-		log.Error("Error writing the header: ", err)
+		log.Errorf("Error writing the header: %v", err)
 	}
 	err = f.file.Sync()
 	if err != nil {
-		log.Error("Error flushing header data to disk: ", err)
+		log.Errorf("Error flushing header data to disk: %v", err)
 	}
 
 	return err
@@ -340,7 +340,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 	} else if f.header.headLength != headerSize {
 		log.Error("Invalid header: bad header length")
 		err = errors.New("invalid header bad header length")
-	} else if f.header.streamType != StSequencer {
+	} else if f.header.streamType != f.streamType {
 		log.Error("Invalid header: bad stream type")
 		err = errors.New("invalid header bad stream type")
 	}
@@ -352,7 +352,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
-		log.Error("Error seeking position to write:", err)
+		log.Errorf("Error seeking position to write: %v", err)
 		return err
 	}
 
@@ -377,12 +377,12 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 				return err
 			}
 
-			log.Info("New file max length: ", f.maxLength)
+			log.Infof("New file max length: %d", f.maxLength)
 
 			// Re-set the file position to write
 			_, err = f.file.Seek(int64(f.header.totalLength), 0)
 			if err != nil {
-				log.Error("Error seeking position to write after file extend: ", err)
+				log.Errorf("Error seeking position to write after file extend: %v", err)
 				return err
 			}
 		}
@@ -391,14 +391,14 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Write the entry
 	_, err = f.file.Write(be)
 	if err != nil {
-		log.Error("Error writing the entry: ", err)
+		log.Errorf("Error writing the entry: %v", err)
 		return err
 	}
 
 	// Flush entry
 	err = f.file.Sync()
 	if err != nil {
-		log.Error("Error flushing new entry to disk: ", err)
+		log.Errorf("Error flushing new entry to disk: %v", err)
 		return err
 	}
 
@@ -414,7 +414,7 @@ func (f *StreamFile) fillPagePaddEntries() error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.totalLength), 0)
 	if err != nil {
-		log.Error("Error seeking fill padds position to write: ", err)
+		log.Errorf("Error seeking fill padds position to write: %v", err)
 		return err
 	}
 
@@ -431,7 +431,7 @@ func (f *StreamFile) fillPagePaddEntries() error {
 		// Write padd entries
 		_, err = f.file.Write(entries)
 		if err != nil {
-			log.Error("Error writing padd entries: ", err)
+			log.Errorf("Error writing padd entries: %v", err)
 			return err
 		}
 
