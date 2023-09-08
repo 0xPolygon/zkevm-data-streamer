@@ -18,7 +18,11 @@ lint: ## Runs the linter
 
 .PHONY: run-server
 run-server: ## Runs the data streamer server
-	go run cmd/main.go
+	go run cmd/main.go server
+
+.PHONY: run-client
+run-client: ## Runs the data streamer client
+	go run cmd/main.go client
 
 .PHONY: run-tool
 run-tool: ## Runs the tool to populate the binary file
