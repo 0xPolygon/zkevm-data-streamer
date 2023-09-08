@@ -18,6 +18,7 @@ type ClientStatus uint64
 type AOStatus uint64
 type EntryType uint32
 type StreamType uint64
+type CommandError uint32
 
 const (
 	// Stream type
@@ -27,6 +28,12 @@ const (
 	CmdStart  Command = 1
 	CmdStop   Command = 2
 	CmdHeader Command = 3
+
+	// Command errors
+	CmdErrOK             CommandError = 0
+	CmdErrAlreadyStarted CommandError = 1
+	CmdErrAlreadyStopped CommandError = 2
+	CmdErrBadFromEntry   CommandError = 3
 
 	// Client status
 	csStarting ClientStatus = 1
@@ -51,6 +58,19 @@ var (
 		csStarted:  "Started",
 		csStopped:  "Stopped",
 		csKilled:   "Killed",
+	}
+
+	StrCommand = map[Command]string{
+		CmdStart:  "Start",
+		CmdStop:   "Stop",
+		CmdHeader: "Header",
+	}
+
+	StrCommandErrors = map[CommandError]string{
+		CmdErrOK:             "OK",
+		CmdErrAlreadyStarted: "Already started",
+		CmdErrAlreadyStopped: "Already stopped",
+		CmdErrBadFromEntry:   "Bad from entry",
 	}
 )
 
@@ -123,12 +143,12 @@ func (s *StreamServer) Start() error {
 	var err error
 	s.ln, err = net.Listen("tcp", ":"+strconv.Itoa(int(s.port)))
 	if err != nil {
-		log.Error("Error creating datastream server: ", s.port, err)
+		log.Errorf("Error creating datastream server %d: %v", s.port, err)
 		return err
 	}
 
 	// Wait for clients connections
-	log.Info("Listening on port: ", s.port)
+	log.Infof("Listening on port: %d", s.port)
 	go s.waitConnections()
 
 	return nil
@@ -144,7 +164,7 @@ func (s *StreamServer) waitConnections() {
 	for {
 		conn, err := s.ln.Accept()
 		if err != nil {
-			log.Error("Error accepting new connection: ", err)
+			log.Errorf("Error accepting new connection: %v", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -158,7 +178,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	clientId := conn.RemoteAddr().String()
-	log.Info("New connection: ", conn.RemoteAddr())
+	log.Infof("New connection: %s", clientId)
 
 	s.clients[clientId] = &client{
 		conn:   conn,
@@ -183,13 +203,13 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 
 		// Check stream type
 		if st != s.streamType {
-			log.Error("Mismatch stream type, killed: ", clientId)
+			log.Errorf("Mismatch stream type, killed: %s", clientId)
 			s.killClient(clientId)
 			return
 		}
 
 		// Manage the requested command
-		log.Infof("Command %d received from %s", command, clientId)
+		log.Infof("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientId)
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
@@ -206,13 +226,14 @@ func (s *StreamServer) StartAtomicOp() error {
 	return nil
 }
 
-func (s *StreamServer) AddStreamEntry(etype EntryType, data []uint8) (uint64, error) {
-	// Log entity example
+func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, error) {
+	// Log data entry fields
 	entity := s.entriesDefinition[etype]
 	if entity.Name != "" {
-		log.Info(entity.toString(data))
+		// log.Infof("New data entry: %d", s.lastEntry+1)
+		log.Infof("New data entry: %s", entity.toString(data))
 	} else {
-		log.Warn("entry definition does not exist")
+		log.Warn("New data entry: Unknown entry type")
 	}
 
 	// Generate data entry
@@ -265,7 +286,7 @@ func (s *StreamServer) RollbackAtomicOp() error {
 
 func (s *StreamServer) broadcastAtomicOp() {
 	// For each connected and started client
-	log.Debug("Broadcast clients length: ", len(s.clients))
+	log.Debugf("Broadcast clients length: %d", len(s.clients))
 	for id, cli := range s.clients {
 		log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 		if cli.status != csStarted {
@@ -273,7 +294,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		}
 
 		// Send entries
-		log.Debug("Streaming to: ", id)
+		log.Debugf("Streaming to: %s", id)
 		writer := bufio.NewWriter(cli.conn)
 		for _, entry := range s.atomicOp.entries {
 			log.Debugf("Sending data entry %d to %s", entry.entryNum, id)
@@ -307,15 +328,14 @@ func (s *StreamServer) killClient(clientId string) {
 func (s *StreamServer) processCommand(command Command, clientId string) error {
 	cli := s.clients[clientId]
 
-	var err error = nil
-	var errNum uint32 = 0
-
 	// Manage each different kind of command request from a client
+	var err error
 	switch command {
 	case CmdStart:
 		if cli.status != csStopped {
 			log.Error("Stream to client already started!")
 			err = errors.New("client already started")
+			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
 		} else {
 			// Perform work of start command
 			cli.status = csStarting
@@ -345,13 +365,6 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 		err = errors.New("invalid command")
 	}
 
-	var errStr string
-	if err != nil {
-		errStr = err.Error()
-	} else {
-		errStr = "OK"
-	}
-	err = s.sendResultEntry(errNum, errStr, clientId)
 	return err
 }
 
@@ -364,8 +377,28 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 		return err
 	}
 
-	log.Infof("Starting entry %d for client %s", fromEntry, clientId)
+	// Check received param
+	if fromEntry > s.lastEntry {
+		log.Errorf("Start command invalid from entry %d for client %s", fromEntry, clientId)
+		err = errors.New("start command invalid param from entry")
+		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], clientId)
+		return err
+	}
 
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
+
+	// Stream entries data from the requested entry number
+	log.Infof("Streaming from entry %d for client %s", fromEntry, clientId)
+	err = s.streamingFromEntry(clientId, fromEntry)
+
+	return err
+}
+
+func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) error {
 	return nil
 }
 
@@ -384,7 +417,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 
 	// Convert struct to binary bytes
 	binaryEntry := encodeResultEntryToBinary(entry)
-	log.Debug("result entry: ", binaryEntry)
+	log.Debugf("result entry: %v", binaryEntry)
 
 	// Send the result entry to the client
 	conn := s.clients[clientId].conn
@@ -408,7 +441,7 @@ func readFullUint64(reader *bufio.Reader) (uint64, error) {
 		if err == io.EOF {
 			log.Warn("Client close connection")
 		} else {
-			log.Error("Error reading from client: ", err)
+			log.Errorf("Error reading from client: %v", err)
 		}
 		return 0, err
 	}
