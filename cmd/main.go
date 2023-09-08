@@ -29,6 +29,8 @@ func main() {
 		Outputs:     []string{"stdout"},
 	})
 
+	log.Errorf("Start command invalid from entry %d for client %q", 123, "olakase")
+
 	app := cli.NewApp()
 
 	app.Commands = []*cli.Command{
