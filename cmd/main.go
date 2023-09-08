@@ -22,6 +22,13 @@ const (
 )
 
 func main() {
+	// Set log level
+	log.Init(log.Config{
+		Environment: "development",
+		Level:       "debug",
+		Outputs:     []string{"stdout"},
+	})
+
 	app := cli.NewApp()
 
 	app.Commands = []*cli.Command{
@@ -47,13 +54,6 @@ func main() {
 }
 
 func runServer(*cli.Context) error {
-	// Set log level
-	log.Init(log.Config{
-		Environment: "development",
-		Level:       "debug",
-		Outputs:     []string{"stdout"},
-	})
-
 	log.Info(">> App begin")
 
 	// Create stream server
