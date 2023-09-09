@@ -127,7 +127,14 @@ func startNewClient() {
 		return
 	}
 
+	// Get header status (execute command Header)
+	err = c.ExecCommand(datastreamer.CmdHeader)
+	if err != nil {
+		return
+	}
+
 	// Start streaming receive (execute command Start)
+	c.FromEntry = c.Header.TotalEntries
 	err = c.ExecCommand(datastreamer.CmdStart)
 	if err != nil {
 		return

@@ -31,8 +31,8 @@ type HeaderEntry struct {
 	packetType   uint8      // 1:Header
 	headLength   uint32     // 29
 	streamType   StreamType // 1:Sequencer
-	totalLength  uint64     // Total bytes used in the file
-	totalEntries uint64     // Total number of data entries (entry type 2)
+	TotalLength  uint64     // Total bytes used in the file
+	TotalEntries uint64     // Total number of data entries (entry type 2)
 }
 
 type FileEntry struct {
@@ -66,8 +66,8 @@ func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
 			packetType:   PtHeader,
 			headLength:   headerSize,
 			streamType:   st,
-			totalLength:  0,
-			totalEntries: 0,
+			TotalLength:  0,
+			TotalEntries: 0,
 		},
 	}
 
@@ -164,7 +164,7 @@ func (f *StreamFile) createHeaderPage() error {
 
 	// Update total data length and max file length
 	f.maxLength = f.maxLength + pageHeaderSize
-	f.header.totalLength = pageHeaderSize
+	f.header.TotalLength = pageHeaderSize
 
 	// Write header entry
 	err = f.writeHeaderEntry()
@@ -257,8 +257,8 @@ func printHeaderEntry(e HeaderEntry) {
 	log.Debugf("packetType: [%d]", e.packetType)
 	log.Debugf("headerLength: [%d]", e.headLength)
 	log.Debugf("streamType: [%d]", e.streamType)
-	log.Debugf("totalLength: [%d]", e.totalLength)
-	log.Debugf("totalEntries: [%d]", e.totalEntries)
+	log.Debugf("totalLength: [%d]", e.TotalLength)
+	log.Debugf("totalEntries: [%d]", e.TotalEntries)
 }
 
 // Write the memory header struct into the file header
@@ -295,8 +295,8 @@ func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.headLength)
 	be = binary.BigEndian.AppendUint64(be, uint64(e.streamType))
-	be = binary.BigEndian.AppendUint64(be, e.totalLength)
-	be = binary.BigEndian.AppendUint64(be, e.totalEntries)
+	be = binary.BigEndian.AppendUint64(be, e.TotalLength)
+	be = binary.BigEndian.AppendUint64(be, e.TotalEntries)
 	return be
 }
 
@@ -312,8 +312,8 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	e.packetType = b[0]
 	e.headLength = binary.BigEndian.Uint32(b[1:5])
 	e.streamType = StreamType(binary.BigEndian.Uint64(b[5:13]))
-	e.totalLength = binary.BigEndian.Uint64(b[13:21])
-	e.totalEntries = binary.BigEndian.Uint64(b[21:29])
+	e.TotalLength = binary.BigEndian.Uint64(b[13:21])
+	e.TotalEntries = binary.BigEndian.Uint64(b[21:29])
 
 	return e, nil
 }
@@ -373,7 +373,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 // Write new data entry to the data stream file
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
-	_, err := f.file.Seek(int64(f.header.totalLength), 0)
+	_, err := f.file.Seek(int64(f.header.TotalLength), 0)
 	if err != nil {
 		log.Errorf("Error seeking position to write: %v", err)
 		return err
@@ -384,7 +384,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 	// Check if the entry fits on current page
 	entryLength := uint64(len(be))
-	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
+	pageRemaining := pageSize - (f.header.TotalLength-pageHeaderSize)%pageSize
 	if entryLength > pageRemaining {
 		log.Debug("== Fill with pad entries")
 		err = f.fillPagePadEntries()
@@ -393,7 +393,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		}
 
 		// Check if file is full
-		if f.header.totalLength == f.maxLength {
+		if f.header.TotalLength == f.maxLength {
 			// Add new data pages to the file
 			log.Info("== FULL FILE -> extending!")
 			err = f.extendFile()
@@ -404,7 +404,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 			log.Infof("New file max length: %d", f.maxLength)
 
 			// Re-set the file position to write
-			_, err = f.file.Seek(int64(f.header.totalLength), 0)
+			_, err = f.file.Seek(int64(f.header.TotalLength), 0)
 			if err != nil {
 				log.Errorf("Error seeking position to write after file extend: %v", err)
 				return err
@@ -427,8 +427,8 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	}
 
 	// Update the current header in memory (on disk later when the commit arrives)
-	f.header.totalLength = f.header.totalLength + entryLength
-	f.header.totalEntries = f.header.totalEntries + 1
+	f.header.TotalLength = f.header.TotalLength + entryLength
+	f.header.TotalEntries = f.header.TotalEntries + 1
 
 	// printHeaderEntry(f.header)
 	return nil
@@ -437,14 +437,14 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 // Fill remaining free space on the current data page with pad
 func (f *StreamFile) fillPagePadEntries() error {
 	// Set the file position to write
-	_, err := f.file.Seek(int64(f.header.totalLength), 0)
+	_, err := f.file.Seek(int64(f.header.TotalLength), 0)
 	if err != nil {
 		log.Errorf("Error seeking fill pads position to write: %v", err)
 		return err
 	}
 
 	// Page remaining free space
-	pageRemaining := pageSize - (f.header.totalLength-pageHeaderSize)%pageSize
+	pageRemaining := pageSize - (f.header.TotalLength-pageHeaderSize)%pageSize
 
 	if pageRemaining > 0 {
 		// Pad entries
@@ -463,7 +463,7 @@ func (f *StreamFile) fillPagePadEntries() error {
 		// Sync/flush to disk will be done outside this function
 
 		// Update the current header in memory (on disk later when the commit arrives)
-		f.header.totalLength = f.header.totalLength + pageRemaining
+		f.header.TotalLength = f.header.TotalLength + pageRemaining
 	}
 
 	return nil

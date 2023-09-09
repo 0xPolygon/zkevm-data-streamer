@@ -65,6 +65,7 @@ var (
 		CmdErrAlreadyStarted: "Already started",
 		CmdErrAlreadyStopped: "Already stopped",
 		CmdErrBadFromEntry:   "Bad from entry",
+		CmdErrInvalidCommand: "Invalid command",
 	}
 )
 
@@ -127,7 +128,7 @@ func New(port uint16, streamType StreamType, fileName string) (StreamServer, err
 	}
 
 	// Initialize the entry number
-	s.lastEntry = s.sf.header.totalEntries
+	s.lastEntry = s.sf.header.TotalEntries
 
 	return s, nil
 }
@@ -334,7 +335,6 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 			err = errors.New("client already started")
 			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
 		} else {
-			// Perform work of start command
 			cli.status = csStarting
 			err = s.processCmdStart(clientId)
 			if err == nil {
@@ -406,6 +406,12 @@ func (s *StreamServer) processCmdStop(clientId string) error {
 }
 
 func (s *StreamServer) processCmdHeader(clientId string) error {
+	// Send a command result entry OK
+	err := s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
+
 	// Get current written/committed file header
 	header := s.sf.getHeaderEntry()
 	binaryHeader := encodeHeaderEntryToBinary(header)
@@ -413,7 +419,7 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 	// Send header entry to the client
 	conn := s.clients[clientId].conn
 	writer := bufio.NewWriter(conn)
-	_, err := writer.Write(binaryHeader)
+	_, err = writer.Write(binaryHeader)
 	if err != nil {
 		log.Errorf("Error sending header entry to %s: %v", clientId, err)
 		return err
