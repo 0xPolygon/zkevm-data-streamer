@@ -43,8 +43,17 @@ func (c *StreamClient) Start() error {
 
 	c.id = c.conn.LocalAddr().String()
 	log.Infof("%s Connected to server: %s", c.id, c.server)
+
+	// Receiving stream
+	// go c.receivingStreaming()
+
 	return nil
 }
+
+// func (c *StreamClient) receivingStreaming() {
+// 	defer c.conn.Close()
+// 	c.streamingRead()
+// }
 
 func (c *StreamClient) SetEntriesDefinition(entriesDef map[EntryType]EntityDefinition) {
 	c.entriesDefinition = entriesDef
@@ -102,7 +111,7 @@ func (c *StreamClient) manageCommand(cmd Command) error {
 
 	case CmdStart:
 		// Streaming receive goroutine
-		c.streamingReceive()
+		c.streamingRead() // TODO: work / call as goroutine?
 
 	case CmdStop:
 
@@ -112,9 +121,8 @@ func (c *StreamClient) manageCommand(cmd Command) error {
 	return nil
 }
 
-func (c *StreamClient) streamingReceive() {
+func (c *StreamClient) streamingRead() {
 	defer c.conn.Close()
-
 	for {
 		// Wait next data entry streamed
 		_, err := c.readDataEntry()

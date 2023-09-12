@@ -217,7 +217,7 @@ func (s *StreamServer) StartAtomicOp() error {
 	log.Debug("!!!Start AtomicOp")
 	if s.atomicOp.status == aoStarted {
 		log.Errorf("AtomicOp already started and in progress after entry %d", s.atomicOp.afterEntry)
-		return errors.New("atomicop already started")
+		return errors.New("start not allowed, atomicop already started")
 	}
 
 	s.atomicOp.status = aoStarted
@@ -226,14 +226,6 @@ func (s *StreamServer) StartAtomicOp() error {
 }
 
 func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, error) {
-	// Log data entry fields
-	entity := s.entriesDefinition[etype]
-	if entity.Name != "" {
-		log.Infof("Data entry: %s", entity.toString(data))
-	} else {
-		log.Warnf("Data entry: No definition for this entry type %d", etype)
-	}
-
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtData,
@@ -243,7 +235,15 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 		data:       data,
 	}
 
-	// Write data entry in the file
+	// Log data entry fields
+	entity := s.entriesDefinition[etype]
+	if entity.Name != "" {
+		log.Infof("Data entry: %d|%d|%d|%d| %s", e.packetType, e.length, e.entryType, e.entryNum, entity.toString(data))
+	} else {
+		log.Warnf("Data entry: %d|%d|%d|%d| No definition for this entry type", e.packetType, e.length, e.entryType, e.entryNum)
+	}
+
+	// Update header (in memory) and write data entry into the file
 	err := s.sf.AddFileEntry(e)
 	if err != nil {
 		return 0, nil
@@ -259,9 +259,14 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 
 func (s *StreamServer) CommitAtomicOp() error {
 	log.Debug("!!!Commit AtomicOp")
+	if s.atomicOp.status != aoStarted {
+		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
+		return errors.New("commit not allowed, atomicop not in started state")
+	}
+
 	s.atomicOp.status = aoCommitting
 
-	// Update header in the file (commit new entries)
+	// Update header into the file (commit the new entries)
 	err := s.sf.writeHeaderEntry()
 	if err != nil {
 		return err
@@ -270,21 +275,45 @@ func (s *StreamServer) CommitAtomicOp() error {
 	// Do broadcast of the commited atomic operation to the stream clients
 	s.broadcastAtomicOp() // TODO: call as goroutine?
 
+	// No atomic operation in progress
+	s.clearAtomicOp()
+
 	return nil
 }
 
 func (s *StreamServer) RollbackAtomicOp() error {
 	log.Debug("!!!Rollback AtomicOp")
+	if s.atomicOp.status != aoStarted {
+		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
+		return errors.New("rollback not allowed, atomicop not in the started state")
+	}
+
 	s.atomicOp.status = aoRollbacking
 
-	// TODO: work
+	// Restore header in memory (discard current) from the file header (rollback entries)
+	err := s.sf.readHeaderEntry()
+	if err != nil {
+		return err
+	}
+
+	// Rollback the entry number
+	s.lastEntry = s.atomicOp.afterEntry
+
+	// No atomic operation in progress
+	s.clearAtomicOp()
 
 	return nil
 }
 
+func (s *StreamServer) clearAtomicOp() {
+	// No atomic operation in progress and empty entries slice
+	s.atomicOp.entries = s.atomicOp.entries[:0]
+	s.atomicOp.status = aoNone
+}
+
 func (s *StreamServer) broadcastAtomicOp() {
 	// For each connected and started client
-	log.Debugf("Broadcast clients length: %d", len(s.clients))
+	log.Debugf("STREAM clients: %d, AtomicOP entries: %d", len(s.clients), len(s.atomicOp.entries))
 	for id, cli := range s.clients {
 		log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 		if cli.status != csStarted {
@@ -306,16 +335,13 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 		}
 	}
-
-	// Finish atomic operation and empty entries slice
-	s.atomicOp.entries = s.atomicOp.entries[:0]
-	s.atomicOp.status = aoNone
 }
 
 func (s *StreamServer) killClient(clientId string) {
 	if s.clients[clientId].status != csKilled {
 		s.clients[clientId].status = csKilled
 		s.clients[clientId].conn.Close()
+		delete(s.clients, clientId)
 	}
 }
 

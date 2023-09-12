@@ -105,17 +105,19 @@ func runServer(*cli.Context) error {
 	dataTx := l2tx.Encode()
 
 	go func() {
+		var latestRollback uint64 = 0
+
 		for n := 1; n <= 1000; n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
-				log.Error(">> App error! StartStreamTx")
+				log.Error(">> App error! StartAtomicOp")
 				return
 			}
 
 			// Add stream entries:
 			// Block
-			_, err := s.AddStreamEntry(1, dataBlock)
+			entryBlock, err := s.AddStreamEntry(1, dataBlock)
 			if err != nil {
 				log.Errorf(">> App error! AddStreamEntry type 1: %v", err)
 				return
@@ -129,11 +131,20 @@ func runServer(*cli.Context) error {
 				}
 			}
 
-			// Commit atomic operation
-			err = s.CommitAtomicOp()
-			if err != nil {
-				log.Error(">> App error! CommitStreamTx")
-				return
+			if entryBlock%10 != 0 || latestRollback == entryBlock {
+				// Commit atomic operation
+				err = s.CommitAtomicOp()
+				if err != nil {
+					log.Error(">> App error! CommitAtomicOp")
+					return
+				}
+			} else {
+				// Rollback atomic operation
+				err = s.RollbackAtomicOp()
+				if err != nil {
+					log.Error(">> App error! RollbackAtomicOp")
+				}
+				latestRollback = entryBlock
 			}
 
 			time.Sleep(5 * time.Second)
