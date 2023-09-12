@@ -1,5 +1,7 @@
 # zkEVM DataStreamer
 
+![zkEVM DataSreamer diagram](doc/data-streamer.png)
+
 ## Binary file format
 
 ### Header page
