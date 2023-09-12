@@ -152,7 +152,7 @@ func runClient(*cli.Context) error {
 	// Get header status (execute command Header)
 	err = c.ExecCommand(datastreamer.CmdHeader)
 	if err != nil {
-		return
+		return err
 	}
 
 	// Start streaming receive (execute command Start)
