@@ -1,7 +1,6 @@
 package datastreamer
 
 import (
-	"bufio"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -11,10 +10,13 @@ import (
 )
 
 type StreamClient struct {
-	server     string
+	server     string // Server address to connect IP:port
 	streamType StreamType
 	conn       net.Conn
-	id         string
+	id         string // Client id
+
+	FromEntry uint64      // Set starting entry data (for Start command)
+	Header    HeaderEntry // Header info received (from Header command)
 }
 
 func NewClient(server string, streamType StreamType) (StreamClient, error) {
@@ -23,6 +25,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		server:     server,
 		streamType: streamType,
 		id:         "",
+		FromEntry:  0,
 	}
 	return c, nil
 }
@@ -55,10 +58,14 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		return err
 	}
 
-	// Manage each command type
-	err = c.manageCommand(cmd)
-	if err != nil {
-		return err
+	// Send the Start command parameter
+	if cmd == CmdStart {
+		// Send starting/from entry number
+		err = writeFullUint64(c.FromEntry, c.conn)
+		if err != nil {
+			log.Errorf("%s %v", c.id, err)
+			return err
+		}
 	}
 
 	// Read server result entry for the command
@@ -67,32 +74,34 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		log.Errorf("%s %v", c.id, err)
 		return err
 	}
+	log.Infof("%s Result %d[%s] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
 
-	log.Infof("%s Result %d[%v] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
-
-	// Streaming receive goroutine
-	if cmd == CmdStart {
-		go c.streamingReceive()
+	// Manage each command type
+	err = c.manageCommand(cmd)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (c *StreamClient) manageCommand(cmd Command) error {
-	var err error
-
 	switch cmd {
 	case CmdHeader:
-	case CmdStart:
-		// Send the starting entry number
-		err = writeFullUint64(555, c.conn)
-		if err != nil {
-			log.Errorf("%s %v", c.id, err)
-			return err
+		// Read header entry
+		h, err := c.readHeaderEntry()
+		if err == nil {
+			c.Header = h
 		}
 
+	case CmdStart:
+		// Streaming receive goroutine
+		go c.streamingReceive()
+
 	case CmdStop:
+
 	default:
+		return errors.New("unknown command")
 	}
 	return nil
 }
@@ -113,11 +122,10 @@ func (c *StreamClient) streamingReceive() {
 
 func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	d := FileEntry{}
-	reader := bufio.NewReader(c.conn)
 
 	// Read fixed size fields
 	buffer := make([]byte, FixedSizeFileEntry)
-	_, err := io.ReadFull(reader, buffer)
+	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
@@ -135,7 +143,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	}
 
 	bufferAux := make([]byte, length-FixedSizeFileEntry)
-	_, err = io.ReadFull(reader, bufferAux)
+	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
@@ -146,13 +154,38 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	}
 	buffer = append(buffer, bufferAux...)
 
-	// Decode binary data entry
+	// Decode binary data to data entry struct
 	d, err = DecodeBinaryToFileEntry(buffer)
 	if err != nil {
 		return d, err
 	}
 
 	return d, nil
+}
+
+func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
+	h := HeaderEntry{}
+
+	// Read header stream bytes
+	binaryHeader := make([]byte, headerSize)
+	n, err := io.ReadFull(c.conn, binaryHeader)
+	if err != nil {
+		log.Errorf("Error reading the header: %v", err)
+		return h, err
+	}
+	if n != headerSize {
+		log.Error("Error getting header info")
+		return h, errors.New("error getting header info")
+	}
+
+	// Decode bytes stream to header entry struct
+	h, err = decodeBinaryToHeaderEntry(binaryHeader)
+	if err != nil {
+		log.Error("Error decoding binary header")
+		return h, err
+	}
+
+	return h, nil
 }
 
 func writeFullUint64(value uint64, conn net.Conn) error {
@@ -169,11 +202,10 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 
 func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	e := ResultEntry{}
-	reader := bufio.NewReader(c.conn)
 
 	// Read fixed size fields
 	buffer := make([]byte, FixedSizeResultEntry)
-	_, err := io.ReadFull(reader, buffer)
+	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
@@ -191,7 +223,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	}
 
 	bufferAux := make([]byte, length-FixedSizeResultEntry)
-	_, err = io.ReadFull(reader, bufferAux)
+	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
