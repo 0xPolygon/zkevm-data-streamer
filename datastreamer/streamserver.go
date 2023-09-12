@@ -1,7 +1,6 @@
 package datastreamer
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -180,16 +179,15 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		status: csStopped,
 	}
 
-	reader := bufio.NewReader(conn)
 	for {
 		// Read command
-		command, err := readFullUint64(reader)
+		command, err := readFullUint64(conn)
 		if err != nil {
 			s.killClient(clientId)
 			return
 		}
 		// Read stream type
-		stUint64, err := readFullUint64(reader)
+		stUint64, err := readFullUint64(conn)
 		if err != nil {
 			s.killClient(clientId)
 			return
@@ -291,23 +289,15 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 		// Send entries
 		log.Debugf("Streaming to: %s", id)
-		writer := bufio.NewWriter(cli.conn)
 		for _, entry := range s.atomicOp.entries {
 			log.Debugf("Sending data entry %d to %s", entry.entryNum, id)
 			binaryEntry := encodeFileEntryToBinary(entry)
 
 			// Send the file data entry
-			_, err := writer.Write(binaryEntry)
+			_, err := cli.conn.Write(binaryEntry)
 			if err != nil {
 				// Kill client connection
 				log.Errorf("Error sending entry to %s", id)
-				s.killClient(id)
-			}
-
-			// Flush buffers
-			err = writer.Flush()
-			if err != nil {
-				log.Errorf("Error flushing socket data to %s", id)
 				s.killClient(id)
 			}
 		}
@@ -372,14 +362,14 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 
 func (s *StreamServer) processCmdStart(clientId string) error {
 	// Read from entry number parameter
-	reader := bufio.NewReader(s.clients[clientId].conn)
-	fromEntry, err := readFullUint64(reader)
+	conn := s.clients[clientId].conn
+	fromEntry, err := readFullUint64(conn)
 	if err != nil {
 		return err
 	}
 
 	// Check received param
-	if fromEntry > s.lastEntry {
+	if fromEntry > s.lastEntry+1 {
 		log.Errorf("Start command invalid from entry %d for client %s", fromEntry, clientId)
 		err = errors.New("start command invalid param from entry")
 		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], clientId)
@@ -418,22 +408,19 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 
 	// Send header entry to the client
 	conn := s.clients[clientId].conn
-	writer := bufio.NewWriter(conn)
-	_, err = writer.Write(binaryHeader)
+	_, err = conn.Write(binaryHeader)
 	if err != nil {
 		log.Errorf("Error sending header entry to %s: %v", clientId, err)
-		return err
-	}
-
-	err = writer.Flush()
-	if err != nil {
-		log.Errorf("Error flushing socket data to %s: %v", clientId, err)
 		return err
 	}
 	return nil
 }
 
 func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) error {
+	// Locate file start streaming point using dichotomic search
+
+	// Loop to read and send the data entries
+
 	return nil
 }
 
@@ -456,26 +443,19 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 
 	// Send the result entry to the client
 	conn := s.clients[clientId].conn
-	writer := bufio.NewWriter(conn)
-	_, err := writer.Write(binaryEntry)
+	_, err := conn.Write(binaryEntry)
 	if err != nil {
 		log.Errorf("Error sending result entry to %s", clientId)
 		s.killClient(clientId)
 		return err
 	}
-
-	err = writer.Flush()
-	if err != nil {
-		log.Errorf("Error flushing socket data to %s: %v", clientId, err)
-		return err
-	}
 	return nil
 }
 
-func readFullUint64(reader *bufio.Reader) (uint64, error) {
+func readFullUint64(conn net.Conn) (uint64, error) {
 	// Read 8 bytes (uint64 value)
 	buffer := make([]byte, 8)
-	n, err := io.ReadFull(reader, buffer)
+	n, err := io.ReadFull(conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Warn("Client close connection")

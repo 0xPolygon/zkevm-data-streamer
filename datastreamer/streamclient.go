@@ -1,7 +1,6 @@
 package datastreamer
 
 import (
-	"bufio"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -123,11 +122,10 @@ func (c *StreamClient) streamingReceive() {
 
 func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	d := FileEntry{}
-	reader := bufio.NewReader(c.conn)
 
 	// Read fixed size fields
 	buffer := make([]byte, FixedSizeFileEntry)
-	_, err := io.ReadFull(reader, buffer)
+	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
@@ -145,7 +143,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	}
 
 	bufferAux := make([]byte, length-FixedSizeFileEntry)
-	_, err = io.ReadFull(reader, bufferAux)
+	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
@@ -167,11 +165,10 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 
 func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 	h := HeaderEntry{}
-	reader := bufio.NewReader(c.conn)
 
 	// Read header stream bytes
 	binaryHeader := make([]byte, headerSize)
-	n, err := io.ReadFull(reader, binaryHeader)
+	n, err := io.ReadFull(c.conn, binaryHeader)
 	if err != nil {
 		log.Errorf("Error reading the header: %v", err)
 		return h, err
@@ -205,11 +202,10 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 
 func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	e := ResultEntry{}
-	reader := bufio.NewReader(c.conn)
 
 	// Read fixed size fields
 	buffer := make([]byte, FixedSizeResultEntry)
-	_, err := io.ReadFull(reader, buffer)
+	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)
@@ -227,7 +223,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	}
 
 	bufferAux := make([]byte, length-FixedSizeResultEntry)
-	_, err = io.ReadFull(reader, bufferAux)
+	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
 			log.Errorf("%s Server close connection", c.id)

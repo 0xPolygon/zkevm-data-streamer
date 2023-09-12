@@ -76,7 +76,7 @@ func main() {
 	data := l2tx.Encode()
 
 	go func() {
-		for n := 1; n <= 2; n++ {
+		for n := 1; n <= 1; n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
@@ -85,7 +85,7 @@ func main() {
 			}
 
 			// Add stream entries
-			for i := 1; i <= 5; i++ {
+			for i := 1; i <= 3; i++ {
 				_, err := s.AddStreamEntry(2, data)
 				if err != nil {
 					log.Errorf(">> App error! AddStreamEntry: %v", err)
@@ -134,7 +134,7 @@ func startNewClient() {
 	}
 
 	// Start streaming receive (execute command Start)
-	c.FromEntry = c.Header.TotalEntries
+	c.FromEntry = c.Header.TotalEntries + 1
 	err = c.ExecCommand(datastreamer.CmdStart)
 	if err != nil {
 		return
