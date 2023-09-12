@@ -148,8 +148,8 @@ func (s *StreamServer) Start() error {
 	return nil
 }
 
-func (s *StreamServer) SetEntriesDefinition(entriesDefinition map[EntryType]EntityDefinition) {
-	s.entriesDefinition = entriesDefinition
+func (s *StreamServer) SetEntriesDefinition(entriesDef map[EntryType]EntityDefinition) {
+	s.entriesDefinition = entriesDef
 }
 
 func (s *StreamServer) waitConnections() {
@@ -215,6 +215,11 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 
 func (s *StreamServer) StartAtomicOp() error {
 	log.Debug("!!!Start AtomicOp")
+	if s.atomicOp.status == aoStarted {
+		log.Errorf("AtomicOp already started and in progress after entry %d", s.atomicOp.afterEntry)
+		return errors.New("atomicop already started")
+	}
+
 	s.atomicOp.status = aoStarted
 	s.atomicOp.afterEntry = s.lastEntry
 	return nil
@@ -224,15 +229,14 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	// Log data entry fields
 	entity := s.entriesDefinition[etype]
 	if entity.Name != "" {
-		// log.Infof("New data entry: %d", s.lastEntry+1)
-		log.Infof("New data entry: %s", entity.toString(data))
+		log.Infof("Data entry: %s", entity.toString(data))
 	} else {
-		log.Warn("New data entry: Unknown entry type")
+		log.Warnf("Data entry: No definition for this entry type %d", etype)
 	}
 
 	// Generate data entry
 	e := FileEntry{
-		packetType: PtEntry,
+		packetType: PtData,
 		length:     1 + 4 + 4 + 8 + uint32(len(data)),
 		entryType:  EntryType(etype),
 		entryNum:   s.lastEntry + 1,
@@ -264,7 +268,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	}
 
 	// Do broadcast of the commited atomic operation to the stream clients
-	s.broadcastAtomicOp() // TODO: call as goroutine
+	s.broadcastAtomicOp() // TODO: call as goroutine?
 
 	return nil
 }
@@ -290,7 +294,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		// Send entries
 		log.Debugf("Streaming to: %s", id)
 		for _, entry := range s.atomicOp.entries {
-			log.Debugf("Sending data entry %d to %s", entry.entryNum, id)
+			log.Debugf("Sending data entry %d (type %d) to %s", entry.entryNum, entry.entryType, id)
 			binaryEntry := encodeFileEntryToBinary(entry)
 
 			// Send the file data entry
@@ -303,6 +307,8 @@ func (s *StreamServer) broadcastAtomicOp() {
 		}
 	}
 
+	// Finish atomic operation and empty entries slice
+	s.atomicOp.entries = s.atomicOp.entries[:0]
 	s.atomicOp.status = aoNone
 }
 
@@ -458,7 +464,7 @@ func readFullUint64(conn net.Conn) (uint64, error) {
 	n, err := io.ReadFull(conn, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Warn("Client close connection")
+			log.Infof("Client %s close connection", conn.RemoteAddr().String())
 		} else {
 			log.Errorf("Error reading from client: %v", err)
 		}
