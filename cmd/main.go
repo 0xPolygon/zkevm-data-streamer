@@ -84,6 +84,8 @@ func runServer(*cli.Context) error {
 		return err
 	}
 
+	time.Sleep(5 * time.Second)
+
 	// ------------------------------------------------------------
 	// Fake Sequencer data
 	l2block := db.L2Block{
@@ -198,7 +200,11 @@ func runClient(*cli.Context) error {
 	}
 
 	// Start streaming receive (execute command Start)
-	c.FromEntry = c.Header.TotalEntries + 1
+	if c.Header.TotalEntries > 10 {
+		c.FromEntry = c.Header.TotalEntries - 10
+	} else {
+		c.FromEntry = 0
+	}
 	err = c.ExecCommand(datastreamer.CmdStart)
 	if err != nil {
 		return err
