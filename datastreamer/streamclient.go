@@ -75,7 +75,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 
 	// Send the Start command parameter
 	if cmd == CmdStart {
-		// Send starting/from entry number
+		// Send starting/from entry num	ber
 		err = writeFullUint64(c.FromEntry, c.conn)
 		if err != nil {
 			log.Errorf("%s %v", c.id, err)
