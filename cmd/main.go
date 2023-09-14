@@ -84,8 +84,19 @@ func runServer(*cli.Context) error {
 		return err
 	}
 
+	time.Sleep(5 * time.Second)
+
 	// ------------------------------------------------------------
 	// Fake Sequencer data
+	l2block := db.L2Block{
+		BatchNumber:    1,
+		L2BlockNumber:  1000,
+		Timestamp:      time.Now(),
+		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14},
+		Coinbase:       [20]byte{20, 21, 22, 23, 24},
+	}
+	dataBlock := l2block.Encode()
+
 	l2tx := db.L2Transaction{
 		BatchNumber:                 1,
 		EffectiveGasPricePercentage: 255,
@@ -93,34 +104,52 @@ func runServer(*cli.Context) error {
 		EncodedLength:               5,
 		Encoded:                     []byte{1, 2, 3, 4, 5},
 	}
-	data := l2tx.Encode()
+	dataTx := l2tx.Encode()
 
 	go func() {
-		for n := 1; n <= 1; n++ {
+		var latestRollback uint64 = 0
+
+		for n := 1; n <= 1000; n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
-				log.Error(">> App error! StartStreamTx")
+				log.Error(">> App error! StartAtomicOp")
 				return
 			}
 
-			// Add stream entries
-			for i := 1; i <= 3; i++ {
-				_, err := s.AddStreamEntry(2, data)
+			// Add stream entries:
+			// Block
+			entryBlock, err := s.AddStreamEntry(1, dataBlock)
+			if err != nil {
+				log.Errorf(">> App error! AddStreamEntry type 1: %v", err)
+				return
+			}
+			// Tx
+			for i := 1; i <= 2; i++ {
+				_, err = s.AddStreamEntry(2, dataTx)
 				if err != nil {
-					log.Errorf(">> App error! AddStreamEntry: %v", err)
+					log.Errorf(">> App error! AddStreamEntry type 2: %v", err)
 					return
 				}
 			}
 
-			// Commit atomic operation
-			err = s.CommitAtomicOp()
-			if err != nil {
-				log.Error(">> App error! CommitStreamTx")
-				return
+			if entryBlock%10 != 0 || latestRollback == entryBlock {
+				// Commit atomic operation
+				err = s.CommitAtomicOp()
+				if err != nil {
+					log.Error(">> App error! CommitAtomicOp")
+					return
+				}
+			} else {
+				// Rollback atomic operation
+				err = s.RollbackAtomicOp()
+				if err != nil {
+					log.Error(">> App error! RollbackAtomicOp")
+				}
+				latestRollback = entryBlock
 			}
 
-			time.Sleep(2 * time.Second)
+			time.Sleep(5 * time.Second)
 		}
 	}()
 	// ------------------------------------------------------------
@@ -143,6 +172,21 @@ func runClient(*cli.Context) error {
 		return err
 	}
 
+	// Set data entries definition
+	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
+		EtStartL2Block: {
+			Name:       "L2Block",
+			StreamType: db.StreamTypeSequencer,
+			Definition: reflect.TypeOf(db.L2Block{}),
+		},
+		EtExecuteL2Tx: {
+			Name:       "L2Transaction",
+			StreamType: db.StreamTypeSequencer,
+			Definition: reflect.TypeOf(db.L2Transaction{}),
+		},
+	}
+	c.SetEntriesDefinition(entriesDefinition)
+
 	// Start client (connect to the server)
 	err = c.Start()
 	if err != nil {
@@ -156,7 +200,11 @@ func runClient(*cli.Context) error {
 	}
 
 	// Start streaming receive (execute command Start)
-	c.FromEntry = c.Header.TotalEntries + 1
+	if c.Header.TotalEntries > 10 {
+		c.FromEntry = c.Header.TotalEntries - 10
+	} else {
+		c.FromEntry = 0
+	}
 	err = c.ExecCommand(datastreamer.CmdStart)
 	if err != nil {
 		return err

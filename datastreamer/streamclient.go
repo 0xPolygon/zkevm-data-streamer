@@ -17,6 +17,8 @@ type StreamClient struct {
 
 	FromEntry uint64      // Set starting entry data (for Start command)
 	Header    HeaderEntry // Header info received (from Header command)
+
+	entriesDefinition map[EntryType]EntityDefinition
 }
 
 func NewClient(server string, streamType StreamType) (StreamClient, error) {
@@ -41,7 +43,20 @@ func (c *StreamClient) Start() error {
 
 	c.id = c.conn.LocalAddr().String()
 	log.Infof("%s Connected to server: %s", c.id, c.server)
+
+	// Receiving stream
+	// go c.receivingStreaming()
+
 	return nil
+}
+
+// func (c *StreamClient) receivingStreaming() {
+// 	defer c.conn.Close()
+// 	c.streamingRead()
+// }
+
+func (c *StreamClient) SetEntriesDefinition(entriesDef map[EntryType]EntityDefinition) {
+	c.entriesDefinition = entriesDef
 }
 
 func (c *StreamClient) ExecCommand(cmd Command) error {
@@ -60,7 +75,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 
 	// Send the Start command parameter
 	if cmd == CmdStart {
-		// Send starting/from entry number
+		// Send starting/from entry num	ber
 		err = writeFullUint64(c.FromEntry, c.conn)
 		if err != nil {
 			log.Errorf("%s %v", c.id, err)
@@ -74,7 +89,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		log.Errorf("%s %v", c.id, err)
 		return err
 	}
-	log.Infof("%s Result %d[%s] received for command %d", c.id, r.errorNum, r.errorStr, cmd)
+	log.Infof("%s Result %d[%s] received for command %d[%s]", c.id, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
 
 	// Manage each command type
 	err = c.manageCommand(cmd)
@@ -96,7 +111,7 @@ func (c *StreamClient) manageCommand(cmd Command) error {
 
 	case CmdStart:
 		// Streaming receive goroutine
-		go c.streamingReceive()
+		c.streamingRead() // TODO: work / call as goroutine?
 
 	case CmdStop:
 
@@ -106,17 +121,14 @@ func (c *StreamClient) manageCommand(cmd Command) error {
 	return nil
 }
 
-func (c *StreamClient) streamingReceive() {
+func (c *StreamClient) streamingRead() {
 	defer c.conn.Close()
-
 	for {
 		// Wait next data entry streamed
-		d, err := c.readDataEntry()
+		_, err := c.readDataEntry()
 		if err != nil {
 			return
 		}
-
-		log.Debugf("(%s) %d | %d | %d | %d", c.id, d.packetType, d.length, d.entryType, d.entryNum)
 	}
 }
 
@@ -128,7 +140,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Errorf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.id)
 		} else {
 			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
@@ -146,7 +158,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
-			log.Errorf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.id)
 		} else {
 			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
@@ -158,6 +170,16 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	d, err = DecodeBinaryToFileEntry(buffer)
 	if err != nil {
 		return d, err
+	}
+
+	// Log data entry fields
+	if d.packetType == PtData {
+		entity := c.entriesDefinition[d.entryType]
+		if entity.Name != "" {
+			log.Infof("Data entry (%s) %d|%d|%d|%d| %s", c.id, d.packetType, d.length, d.entryType, d.entryNum, entity.toString(d.data))
+		} else {
+			log.Warnf("Data entry (%s) %d|%d|%d|%d| No definition for this entry type", c.id, d.packetType, d.length, d.entryType, d.entryNum)
+		}
 	}
 
 	return d, nil
@@ -208,7 +230,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Errorf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.id)
 		} else {
 			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}
@@ -226,7 +248,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
-			log.Errorf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.id)
 		} else {
 			log.Errorf("%s Error reading from server: %v", c.id, err)
 		}

@@ -3,6 +3,7 @@ package datastreamer
 import (
 	"encoding/binary"
 	"errors"
+	"io"
 	"os"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -12,14 +13,14 @@ const (
 	// File config
 	headerSize     = 29          // Header data size
 	pageHeaderSize = 4096        // 4K size header page
-	pageSize       = 1024 * 1024 // 1 MB size data page
+	pageDataSize   = 1024 * 1024 // 1 MB size data page
 	initPages      = 80          // Initial number of data pages
 	nextPages      = 8           // Number of data pages to add when file is full
 
 	// Packet types
 	PtPadding = 0
 	PtHeader  = 1    // Just for the header page
-	PtEntry   = 2    // Data entry
+	PtData    = 2    // Data entry
 	PtResult  = 0xff // Not stored/present in file (just for client command result)
 
 	// Sizes
@@ -54,10 +55,16 @@ type StreamFile struct {
 	writtenHead HeaderEntry // Current header written in the file
 }
 
+type iteratorFile struct {
+	fromEntry uint64
+	file      *os.File
+	entry     FileEntry
+}
+
 func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
-		pageSize:   pageSize,
+		pageSize:   pageDataSize,
 		file:       nil,
 		streamType: st,
 		maxLength:  0,
@@ -176,7 +183,7 @@ func (f *StreamFile) createPage(size uint32) error {
 	page := make([]byte, size)
 
 	// Position at the end of the file
-	_, err := f.file.Seek(0, 2)
+	_, err := f.file.Seek(0, io.SeekEnd)
 	if err != nil {
 		log.Errorf("Error seeking the end of the file: %v", err)
 		return err
@@ -218,7 +225,7 @@ func (f *StreamFile) extendFile() error {
 // Read header from file to restore the header struct
 func (f *StreamFile) readHeaderEntry() error {
 	// Position at the beginning of the file
-	_, err := f.file.Seek(0, 0)
+	_, err := f.file.Seek(0, io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
@@ -264,7 +271,7 @@ func printHeaderEntry(e HeaderEntry) {
 // Write the memory header struct into the file header
 func (f *StreamFile) writeHeaderEntry() error {
 	// Position at the beginning of the file
-	_, err := f.file.Seek(0, 0)
+	_, err := f.file.Seek(0, io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
@@ -373,7 +380,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 // Write new data entry to the data stream file
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
-	_, err := f.file.Seek(int64(f.header.TotalLength), 0)
+	_, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking position to write: %v", err)
 		return err
@@ -384,9 +391,9 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 	// Check if the entry fits on current page
 	entryLength := uint64(len(be))
-	pageRemaining := pageSize - (f.header.TotalLength-pageHeaderSize)%pageSize
+	pageRemaining := pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
 	if entryLength > pageRemaining {
-		log.Debug("== Fill with pad entries")
+		log.Debugf(">> Fill with pad entries. PageRemaining:%d, EntryLength:%d", pageRemaining, entryLength)
 		err = f.fillPagePadEntries()
 		if err != nil {
 			return err
@@ -395,16 +402,16 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		// Check if file is full
 		if f.header.TotalLength == f.maxLength {
 			// Add new data pages to the file
-			log.Info("== FULL FILE -> extending!")
+			log.Infof(">> FULL FILE (TotalLength: %d) -> extending!", f.header.TotalLength)
 			err = f.extendFile()
 			if err != nil {
 				return err
 			}
 
-			log.Infof("New file max length: %d", f.maxLength)
+			log.Infof(">> New file max length: %d", f.maxLength)
 
 			// Re-set the file position to write
-			_, err = f.file.Seek(int64(f.header.TotalLength), 0)
+			_, err = f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
 			if err != nil {
 				log.Errorf("Error seeking position to write after file extend: %v", err)
 				return err
@@ -437,14 +444,14 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 // Fill remaining free space on the current data page with pad
 func (f *StreamFile) fillPagePadEntries() error {
 	// Set the file position to write
-	_, err := f.file.Seek(int64(f.header.TotalLength), 0)
+	_, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking fill pads position to write: %v", err)
 		return err
 	}
 
 	// Page remaining free space
-	pageRemaining := pageSize - (f.header.TotalLength-pageHeaderSize)%pageSize
+	pageRemaining := pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
 
 	if pageRemaining > 0 {
 		// Pad entries
@@ -500,3 +507,194 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 
 	return d, nil
 }
+
+func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
+	// Open file for read only
+	file, err := os.OpenFile(f.fileName, os.O_RDONLY, os.ModePerm)
+	if err != nil {
+		log.Errorf("Error opening file for iterator: %v", err)
+		return nil, err
+	}
+
+	// Set the file position to first data page
+	_, err = file.Seek(pageHeaderSize, io.SeekStart)
+	if err != nil {
+		log.Errorf("Error seeking file for iterator: %v", err)
+		return nil, err
+	}
+
+	// Create iterator struct
+	iterator := iteratorFile{
+		fromEntry: entryNum,
+		file:      file,
+		entry: FileEntry{
+			entryNum: 0,
+		},
+	}
+
+	// TODO: Locate file start streaming point using dichotomic search
+	// f.seekEntry(&iterator)
+	if entryNum > 0 {
+		for {
+			end, err := f.iteratorNext(&iterator)
+			if err != nil {
+				return nil, err
+			}
+
+			if end {
+				break
+			}
+
+			if iterator.entry.entryNum+1 == entryNum {
+				break
+			}
+		}
+	}
+
+	return &iterator, err
+}
+
+func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
+	// Check end of entries condition
+	if iterator.entry.entryNum == f.writtenHead.TotalEntries {
+		return true, nil
+	}
+
+	// Read just the packet type
+	packet := make([]byte, 1)
+	_, err := iterator.file.Read(packet)
+	if err != nil {
+		log.Errorf("Error reading packet type for iterator: %v", err)
+		return true, err
+	}
+
+	// Check if it is of type pad, if so forward to next data page on the file
+	if packet[0] == PtPadding {
+		// Current file position
+		pos, err := iterator.file.Seek(0, io.SeekCurrent)
+		if err != nil {
+			log.Errorf("Error seeking current pos for iterator: %v", err)
+			return true, err
+		}
+
+		// Bytes to forward until next data page
+		forward := pageDataSize - ((pos - pageHeaderSize) % pageDataSize)
+
+		// Check end of data pages condition
+		if pos+forward >= int64(f.writtenHead.TotalLength) {
+			return true, nil
+		}
+
+		// Seek for the start of next data page
+		_, err = iterator.file.Seek(forward, io.SeekCurrent)
+		if err != nil {
+			log.Errorf("Error seeking next page for iterator: %v", err)
+			return true, err
+		}
+
+		// Read the new packet type
+		_, err = iterator.file.Read(packet)
+		if err != nil {
+			log.Errorf("Error reading new packet type for iterator: %v", err)
+			return true, err
+		}
+
+		// Should be of type data
+		if packet[0] != PtData {
+			log.Errorf("Error data page not starting with packet of type data. Type: %d", packet[0])
+			return true, errors.New("page not starting with entry data")
+		}
+	}
+
+	// Read the rest of fixed data entry bytes
+	buffer := make([]byte, FixedSizeFileEntry-1)
+	_, err = iterator.file.Read(buffer)
+	if err != nil {
+		log.Errorf("Error reading entry for iterator: %v", err)
+		return true, err
+	}
+	buffer = append(packet, buffer...)
+
+	// Read variable data
+	length := binary.BigEndian.Uint32(buffer[1:5])
+	bufferAux := make([]byte, length-FixedSizeFileEntry)
+	_, err = iterator.file.Read(bufferAux)
+	if err != nil {
+		log.Errorf("Error reading data for iterator: %v", err)
+		return true, err
+	}
+	buffer = append(buffer, bufferAux...)
+
+	// Convert to data entry struct
+	iterator.entry, err = DecodeBinaryToFileEntry(buffer)
+	if err != nil {
+		log.Errorf("Error decoding entry for iterator: %v", err)
+		return true, err
+	}
+
+	return false, nil
+}
+
+func (f *StreamFile) iteratorEnd(iterator *iteratorFile) {
+	iterator.file.Close()
+}
+
+// func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
+// 	// Start and end data page
+// 	avg := 0
+// 	beg := 1
+// 	end := int((f.writtenHead.TotalLength - pageHeaderSize) / pageDataSize)
+// 	if (f.writtenHead.TotalLength-pageHeaderSize)%pageDataSize != 0 {
+// 		end = end + 1
+// 	}
+
+// 	// Custom binary search
+// 	for beg <= end {
+// 		avg = beg + (end-beg)/2
+
+// 		// Seek for the start of avg data page
+// 		newPos := (avg * pageDataSize) + pageHeaderSize
+// 		_, err := iterator.file.Seek(int64(newPos), io.SeekStart)
+// 		if err != nil {
+// 			log.Errorf("Error seeking page for iterator seek entry: %v", err)
+// 			return err
+// 		}
+
+// 		// Read fixed data entry bytes
+// 		buffer := make([]byte, FixedSizeFileEntry)
+// 		_, err = iterator.file.Read(buffer)
+// 		if err != nil {
+// 			log.Errorf("Error reading entry for iterator seek entry: %v", err)
+// 			return err
+// 		}
+
+// 		// Decode packet type
+// 		packetType := buffer[0]
+// 		if packetType != PtData {
+// 			log.Errorf("Error data page (%d) not starting with packet of type data. Type: %d", avg, packetType)
+// 			return errors.New("page not starting with entry data")
+// 		}
+
+// 		// Decode entry number and compare with target value
+// 		entryNum := binary.BigEndian.Uint64(buffer[9:17])
+// 		if entryNum == iterator.fromEntry {
+// 			break
+// 		} else if entryNum > iterator.fromEntry {
+// 			end = avg - 1
+// 		} else if entryNum < iterator.fromEntry {
+// 			beg = avg
+// 		} else if beg == end {
+// 			break
+// 		}
+// 	}
+
+// 	// Back to the start of the current data page (where the entry number is present)
+// 	_, err := iterator.file.Seek(-FixedSizeFileEntry, io.SeekCurrent)
+// 	if err != nil {
+// 		log.Errorf("Error seeking page for iterator seek entry: %v", err)
+// 		return err
+// 	}
+
+// 	log.Debugf("Entry number %d is in the data page %d", iterator.fromEntry, avg)
+// 	return nil
+// }
