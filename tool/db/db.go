@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/ethereum/go-ethereum/common"
@@ -70,11 +71,12 @@ func scanL2Block(row pgx.Row) (*L2Block, error) {
 	var (
 		gerStr      string
 		coinbaseStr string
+		timestamp   time.Time
 	)
 	if err := row.Scan(
 		&l2Block.BatchNumber,
 		&l2Block.L2BlockNumber,
-		&l2Block.Timestamp,
+		&timestamp,
 		&gerStr,
 		&coinbaseStr,
 	); err != nil {
@@ -82,6 +84,7 @@ func scanL2Block(row pgx.Row) (*L2Block, error) {
 	}
 	l2Block.GlobalExitRoot = common.HexToHash(gerStr)
 	l2Block.Coinbase = common.HexToAddress(coinbaseStr)
+	l2Block.Timestamp = timestamp.Unix()
 	return &l2Block, nil
 }
 

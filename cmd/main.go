@@ -57,7 +57,7 @@ func runServer(*cli.Context) error {
 	log.Info(">> App begin")
 
 	// Create stream server
-	s, err := datastreamer.New(1337, StSequencer, "streamfile.bin")
+	s, err := datastreamer.New(6900, StSequencer, "streamfile.bin")
 	if err != nil {
 		os.Exit(1)
 	}
@@ -91,7 +91,7 @@ func runServer(*cli.Context) error {
 	l2block := db.L2Block{
 		BatchNumber:    1,
 		L2BlockNumber:  1000,
-		Timestamp:      time.Now(),
+		Timestamp:      time.Now().Unix(),
 		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14},
 		Coinbase:       [20]byte{20, 21, 22, 23, 24},
 	}
@@ -167,7 +167,7 @@ func runServer(*cli.Context) error {
 
 func runClient(*cli.Context) error {
 	// Create client
-	c, err := datastreamer.NewClient("127.0.0.1:1337", StSequencer)
+	c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
 	if err != nil {
 		return err
 	}
