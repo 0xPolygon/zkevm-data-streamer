@@ -219,7 +219,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 }
 
 func (s *StreamServer) StartAtomicOp() error {
-	log.Debug("!!!Start AtomicOp")
+	log.Infof("!!!Start AtomicOp (%d)", s.nextEntry)
 	if s.atomicOp.status == aoStarted {
 		log.Errorf("AtomicOp already started and in progress after entry %d", s.atomicOp.startEntry)
 		return errors.New("start not allowed, atomicop already started")
@@ -264,7 +264,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 }
 
 func (s *StreamServer) CommitAtomicOp() error {
-	log.Debug("!!!Commit AtomicOp")
+	log.Infof("!!!Commit AtomicOp (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
 		return errors.New("commit not allowed, atomicop not in started state")
@@ -288,7 +288,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 }
 
 func (s *StreamServer) RollbackAtomicOp() error {
-	log.Debug("!!!Rollback AtomicOp")
+	log.Infof("!!!Rollback AtomicOp (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
 		return errors.New("rollback not allowed, atomicop not in the started state")
@@ -323,15 +323,15 @@ func (s *StreamServer) broadcastAtomicOp() {
 		broadcastOp := <-s.stream
 
 		// For each connected and started client
-		log.Debugf("STREAM clients: %d, AtomicOP entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Infof("STREAM clients: %d, AtomicOP entries: %d", len(s.clients), len(broadcastOp.entries))
 		for id, cli := range s.clients {
-			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
+			log.Infof("Stream client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
 				continue
 			}
 
 			// Send entries
-			log.Debugf("Streaming to: %s", id)
+			log.Infof("Streaming to: %s", id)
 			for _, entry := range broadcastOp.entries {
 				log.Debugf("Sending data entry %d (type %d) to %s", entry.entryNum, entry.entryType, id)
 				binaryEntry := encodeFileEntryToBinary(entry)
