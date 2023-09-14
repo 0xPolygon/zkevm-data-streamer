@@ -92,6 +92,7 @@ func start(cliCtx *cli.Context) error {
 	}
 
 	streamServer.SetEntriesDefinition(entriesDefinition)
+	streamServer.Start()
 
 	// Connect to the database
 	stateSqlDB, err := db.NewSQLDB(c.StateDB)

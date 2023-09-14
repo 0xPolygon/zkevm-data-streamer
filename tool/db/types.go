@@ -1,7 +1,6 @@
 package db
 
 import (
-	"time"
 	"unsafe"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
@@ -21,7 +20,7 @@ const (
 type L2Block struct {
 	BatchNumber    uint64
 	L2BlockNumber  uint64
-	Timestamp      time.Time
+	Timestamp      int64
 	GlobalExitRoot common.Hash
 	Coinbase       common.Address
 }
