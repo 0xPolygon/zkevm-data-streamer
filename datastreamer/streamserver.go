@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+	"go.uber.org/zap/zapcore"
 )
 
 type Command uint64
@@ -241,13 +242,15 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	}
 
 	// Log data entry fields
-	// if log.GetLevel() == log.Debug
-
-	entity := s.entriesDefinition[etype]
-	if entity.Name != "" {
-		log.Infof("Data entry: %d|%d|%d|%d| %s", e.packetType, e.length, e.entryType, e.entryNum, entity.toString(data))
+	if log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
+		entity := s.entriesDefinition[etype]
+		if entity.Name != "" {
+			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.packetType, e.length, e.entryType, e.entryNum, entity.toString(data))
+		} else {
+			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.packetType, e.length, e.entryType, e.entryNum)
+		}
 	} else {
-		log.Warnf("Data entry: %d|%d|%d|%d| No definition for this entry type", e.packetType, e.length, e.entryType, e.entryNum)
+		log.Infof("Data entry: %d | %d | %d | %d | %d", e.packetType, e.length, e.entryType, e.entryNum, len(data))
 	}
 
 	// Update header (in memory) and write data entry into the file

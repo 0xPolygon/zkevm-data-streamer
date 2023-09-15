@@ -25,7 +25,7 @@ func main() {
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
-		Level:       "debug",
+		Level:       "info",
 		Outputs:     []string{"stdout"},
 	})
 

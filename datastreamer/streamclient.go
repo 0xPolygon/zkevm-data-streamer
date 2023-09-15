@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+	"go.uber.org/zap/zapcore"
 )
 
 type StreamClient struct {
@@ -173,13 +174,15 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	}
 
 	// Log data entry fields
-	if d.packetType == PtData {
+	if log.GetLevel() == zapcore.DebugLevel && d.packetType == PtData {
 		entity := c.entriesDefinition[d.entryType]
 		if entity.Name != "" {
-			log.Infof("Data entry (%s) %d|%d|%d|%d| %s", c.id, d.packetType, d.length, d.entryType, d.entryNum, entity.toString(d.data))
+			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, d.packetType, d.length, d.entryType, d.entryNum, entity.toString(d.data))
 		} else {
-			log.Warnf("Data entry (%s) %d|%d|%d|%d| No definition for this entry type", c.id, d.packetType, d.length, d.entryType, d.entryNum)
+			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, d.packetType, d.length, d.entryType, d.entryNum)
 		}
+	} else {
+		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, d.packetType, d.length, d.entryType, d.entryNum, len(d.data))
 	}
 
 	return d, nil
