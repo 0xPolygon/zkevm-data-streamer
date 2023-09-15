@@ -119,6 +119,11 @@ func (l *Logger) WithFields(keyValuePairs ...interface{}) *Logger {
 	}
 }
 
+// GetLevel returns the configured log level
+func (l *Logger) GetLevel() zapcore.Level {
+	return l.x.Level()
+}
+
 func sprintStackTrace(st []tracerr.Frame) string {
 	builder := strings.Builder{}
 	// Skip deepest frame because it belongs to the go runtime and we don't
