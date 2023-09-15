@@ -241,6 +241,8 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	}
 
 	// Log data entry fields
+	// if log.GetLevel() == log.Debug
+
 	entity := s.entriesDefinition[etype]
 	if entity.Name != "" {
 		log.Infof("Data entry: %d|%d|%d|%d| %s", e.packetType, e.length, e.entryType, e.entryNum, entity.toString(data))
@@ -354,10 +356,14 @@ func (s *StreamServer) broadcastAtomicOp() {
 }
 
 func (s *StreamServer) killClient(clientId string) {
-	if s.clients[clientId].status != csKilled {
-		s.clients[clientId].status = csKilled
-		s.clients[clientId].conn.Close()
-		delete(s.clients, clientId)
+	if s.clients[clientId] != nil {
+		if s.clients[clientId].status != csKilled {
+			s.clients[clientId].status = csKilled
+			if s.clients[clientId].conn != nil {
+				s.clients[clientId].conn.Close()
+			}
+			delete(s.clients, clientId)
+		}
 	}
 }
 
