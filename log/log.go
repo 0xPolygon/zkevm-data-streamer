@@ -120,8 +120,8 @@ func (l *Logger) WithFields(keyValuePairs ...interface{}) *Logger {
 }
 
 // GetLevel returns the configured log level
-func (l *Logger) GetLevel() zapcore.Level {
-	return l.x.Level()
+func GetLevel() zapcore.Level {
+	return getDefaultLog().x.Level()
 }
 
 func sprintStackTrace(st []tracerr.Frame) string {
