@@ -318,6 +318,7 @@ func (s *StreamServer) clearAtomicOp() {
 }
 
 func (s *StreamServer) broadcastAtomicOp() {
+	var err error
 	for {
 		// Wait for new atomic operation to broadcast
 		broadcastOp := <-s.stream
@@ -337,10 +338,14 @@ func (s *StreamServer) broadcastAtomicOp() {
 				binaryEntry := encodeFileEntryToBinary(entry)
 
 				// Send the file data entry
-				_, err := cli.conn.Write(binaryEntry)
+				if cli.conn != nil {
+					_, err = cli.conn.Write(binaryEntry)
+				} else {
+					err = errors.New("error nil connection")
+				}
 				if err != nil {
 					// Kill client connection
-					log.Errorf("Error sending entry to %s", id)
+					log.Errorf("Error sending entry to %s: %v", id, err)
 					s.killClient(id)
 				}
 			}
@@ -461,7 +466,11 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 
 	// Send header entry to the client
 	conn := s.clients[clientId].conn
-	_, err = conn.Write(binaryHeader)
+	if conn != nil {
+		_, err = conn.Write(binaryHeader)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
 		log.Errorf("Error sending header entry to %s: %v", clientId, err)
 		return err
@@ -495,9 +504,13 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 		// Send the file data entry
 		binaryEntry := encodeFileEntryToBinary(iterator.entry)
 		log.Infof("Sending data entry %d (type %d) to %s", iterator.entry.entryNum, iterator.entry.entryType, clientId)
-		_, err = conn.Write(binaryEntry)
+		if conn != nil {
+			_, err = conn.Write(binaryEntry)
+		} else {
+			err = errors.New("error nil connection")
+		}
 		if err != nil {
-			log.Errorf("Error sending entry %d to %s", iterator.entry.entryNum, clientId)
+			log.Errorf("Error sending entry %d to %s: %v", iterator.entry.entryNum, clientId, err)
 			return err
 		}
 	}
@@ -527,11 +540,15 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	log.Debugf("result entry: %v", binaryEntry)
 
 	// Send the result entry to the client
+	var err error
 	conn := s.clients[clientId].conn
-	_, err := conn.Write(binaryEntry)
+	if conn != nil {
+		_, err = conn.Write(binaryEntry)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
-		log.Errorf("Error sending result entry to %s", clientId)
-		s.killClient(clientId)
+		log.Errorf("Error sending result entry to %s: %v", clientId, err)
 		return err
 	}
 	return nil

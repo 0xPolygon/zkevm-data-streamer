@@ -214,7 +214,12 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 	buffer := make([]byte, 8)
 	binary.BigEndian.PutUint64(buffer, uint64(value))
 
-	_, err := conn.Write(buffer)
+	var err error
+	if conn != nil {
+		_, err = conn.Write(buffer)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
 		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
 		return err
