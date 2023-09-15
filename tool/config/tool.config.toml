@@ -1,6 +1,6 @@
 
 [StreamServer]
-Port = 8080
+Port = 6900
 Filename = "streamfile.bin"
 
 [StateDB]
