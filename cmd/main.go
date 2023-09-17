@@ -89,17 +89,17 @@ func runServer(*cli.Context) error {
 	// ------------------------------------------------------------
 	// Fake Sequencer data
 	l2block := db.L2Block{
-		BatchNumber:    1,
-		L2BlockNumber:  1000,
+		BatchNumber:    101,
+		L2BlockNumber:  1337,
 		Timestamp:      time.Now().Unix(),
-		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14},
-		Coinbase:       [20]byte{20, 21, 22, 23, 24},
+		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17},
+		Coinbase:       [20]byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24},
 	}
 	dataBlock := l2block.Encode()
 
 	l2tx := db.L2Transaction{
-		BatchNumber:                 1,
-		EffectiveGasPricePercentage: 255,
+		BatchNumber:                 101,
+		EffectiveGasPricePercentage: 128,
 		IsValid:                     1,
 		EncodedLength:               5,
 		Encoded:                     []byte{1, 2, 3, 4, 5},
