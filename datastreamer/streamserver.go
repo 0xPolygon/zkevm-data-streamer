@@ -245,12 +245,12 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	if log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
 		entity := s.entriesDefinition[etype]
 		if entity.Name != "" {
-			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.packetType, e.length, e.entryType, e.entryNum, entity.toString(data))
+			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.entryNum, e.packetType, e.length, e.entryType, entity.toString(data))
 		} else {
-			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.packetType, e.length, e.entryType, e.entryNum)
+			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.entryNum, e.packetType, e.length, e.entryType)
 		}
 	} else {
-		log.Infof("Data entry: %d | %d | %d | %d | %d", e.packetType, e.length, e.entryType, e.entryNum, len(data))
+		log.Infof("Data entry: %d | %d | %d | %d | %d", e.entryNum, e.packetType, e.length, e.entryType, len(data))
 	}
 
 	// Update header (in memory) and write data entry into the file
@@ -337,7 +337,6 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 
 			// Send entries
-			log.Infof("Streaming to: %s", id)
 			for _, entry := range broadcastOp.entries {
 				log.Debugf("Sending data entry %d (type %d) to %s", entry.entryNum, entry.entryType, id)
 				binaryEntry := encodeFileEntryToBinary(entry)

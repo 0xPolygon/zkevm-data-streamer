@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"os"
 	"os/signal"
 	"reflect"
@@ -109,6 +110,8 @@ func runServer(*cli.Context) error {
 	go func() {
 		var latestRollback uint64 = 0
 
+		rand.Seed(time.Now().UnixNano())
+
 		for n := 1; n <= 1000; n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
@@ -125,7 +128,8 @@ func runServer(*cli.Context) error {
 				return
 			}
 			// Tx
-			for i := 1; i <= 2; i++ {
+			numTx := rand.Intn(20) + 1
+			for i := 1; i <= numTx; i++ {
 				_, err = s.AddStreamEntry(2, dataTx)
 				if err != nil {
 					log.Errorf(">> App error! AddStreamEntry type 2: %v", err)
@@ -149,7 +153,7 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlock
 			}
 
-			time.Sleep(5 * time.Second)
+			time.Sleep(2000 * time.Millisecond)
 		}
 	}()
 	// ------------------------------------------------------------

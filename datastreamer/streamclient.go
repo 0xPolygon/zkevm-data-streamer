@@ -177,12 +177,12 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	if log.GetLevel() == zapcore.DebugLevel && d.packetType == PtData {
 		entity := c.entriesDefinition[d.entryType]
 		if entity.Name != "" {
-			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, d.packetType, d.length, d.entryType, d.entryNum, entity.toString(d.data))
+			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, d.entryNum, d.packetType, d.length, d.entryType, entity.toString(d.data))
 		} else {
-			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, d.packetType, d.length, d.entryType, d.entryNum)
+			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, d.entryNum, d.packetType, d.length, d.entryType)
 		}
 	} else {
-		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, d.packetType, d.length, d.entryType, d.entryNum, len(d.data))
+		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, d.entryNum, d.packetType, d.length, d.entryType, len(d.data))
 	}
 
 	return d, nil
