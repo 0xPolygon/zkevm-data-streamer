@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"os"
 	"os/signal"
 	"reflect"
@@ -25,7 +26,7 @@ func main() {
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
-		Level:       "debug",
+		Level:       "info",
 		Outputs:     []string{"stdout"},
 	})
 
@@ -89,17 +90,17 @@ func runServer(*cli.Context) error {
 	// ------------------------------------------------------------
 	// Fake Sequencer data
 	l2block := db.L2Block{
-		BatchNumber:    1,
-		L2BlockNumber:  1000,
+		BatchNumber:    101,
+		L2BlockNumber:  1337,
 		Timestamp:      time.Now().Unix(),
-		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14},
-		Coinbase:       [20]byte{20, 21, 22, 23, 24},
+		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17},
+		Coinbase:       [20]byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24},
 	}
 	dataBlock := l2block.Encode()
 
 	l2tx := db.L2Transaction{
-		BatchNumber:                 1,
-		EffectiveGasPricePercentage: 255,
+		BatchNumber:                 101,
+		EffectiveGasPricePercentage: 128,
 		IsValid:                     1,
 		EncodedLength:               5,
 		Encoded:                     []byte{1, 2, 3, 4, 5},
@@ -108,6 +109,8 @@ func runServer(*cli.Context) error {
 
 	go func() {
 		var latestRollback uint64 = 0
+
+		rand.Seed(time.Now().UnixNano())
 
 		for n := 1; n <= 1000; n++ {
 			// Start atomic operation
@@ -125,7 +128,8 @@ func runServer(*cli.Context) error {
 				return
 			}
 			// Tx
-			for i := 1; i <= 2; i++ {
+			numTx := rand.Intn(20) + 1
+			for i := 1; i <= numTx; i++ {
 				_, err = s.AddStreamEntry(2, dataTx)
 				if err != nil {
 					log.Errorf(">> App error! AddStreamEntry type 2: %v", err)
@@ -149,7 +153,7 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlock
 			}
 
-			time.Sleep(5 * time.Second)
+			time.Sleep(2000 * time.Millisecond)
 		}
 	}()
 	// ------------------------------------------------------------

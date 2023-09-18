@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+	"go.uber.org/zap/zapcore"
 )
 
 type Command uint64
@@ -241,11 +242,15 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	}
 
 	// Log data entry fields
-	entity := s.entriesDefinition[etype]
-	if entity.Name != "" {
-		log.Infof("Data entry: %d|%d|%d|%d| %s", e.packetType, e.length, e.entryType, e.entryNum, entity.toString(data))
+	if log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
+		entity := s.entriesDefinition[etype]
+		if entity.Name != "" {
+			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.entryNum, e.packetType, e.length, e.entryType, entity.toString(data))
+		} else {
+			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.entryNum, e.packetType, e.length, e.entryType)
+		}
 	} else {
-		log.Warnf("Data entry: %d|%d|%d|%d| No definition for this entry type", e.packetType, e.length, e.entryType, e.entryNum)
+		log.Infof("Data entry: %d | %d | %d | %d | %d", e.entryNum, e.packetType, e.length, e.entryType, len(data))
 	}
 
 	// Update header (in memory) and write data entry into the file
@@ -318,6 +323,7 @@ func (s *StreamServer) clearAtomicOp() {
 }
 
 func (s *StreamServer) broadcastAtomicOp() {
+	var err error
 	for {
 		// Wait for new atomic operation to broadcast
 		broadcastOp := <-s.stream
@@ -331,16 +337,19 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 
 			// Send entries
-			log.Infof("Streaming to: %s", id)
 			for _, entry := range broadcastOp.entries {
 				log.Debugf("Sending data entry %d (type %d) to %s", entry.entryNum, entry.entryType, id)
 				binaryEntry := encodeFileEntryToBinary(entry)
 
 				// Send the file data entry
-				_, err := cli.conn.Write(binaryEntry)
+				if cli.conn != nil {
+					_, err = cli.conn.Write(binaryEntry)
+				} else {
+					err = errors.New("error nil connection")
+				}
 				if err != nil {
 					// Kill client connection
-					log.Errorf("Error sending entry to %s", id)
+					log.Errorf("Error sending entry to %s: %v", id, err)
 					s.killClient(id)
 				}
 			}
@@ -349,10 +358,14 @@ func (s *StreamServer) broadcastAtomicOp() {
 }
 
 func (s *StreamServer) killClient(clientId string) {
-	if s.clients[clientId].status != csKilled {
-		s.clients[clientId].status = csKilled
-		s.clients[clientId].conn.Close()
-		delete(s.clients, clientId)
+	if s.clients[clientId] != nil {
+		if s.clients[clientId].status != csKilled {
+			s.clients[clientId].status = csKilled
+			if s.clients[clientId].conn != nil {
+				s.clients[clientId].conn.Close()
+			}
+			delete(s.clients, clientId)
+		}
 	}
 }
 
@@ -461,7 +474,11 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 
 	// Send header entry to the client
 	conn := s.clients[clientId].conn
-	_, err = conn.Write(binaryHeader)
+	if conn != nil {
+		_, err = conn.Write(binaryHeader)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
 		log.Errorf("Error sending header entry to %s: %v", clientId, err)
 		return err
@@ -495,9 +512,13 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 		// Send the file data entry
 		binaryEntry := encodeFileEntryToBinary(iterator.entry)
 		log.Infof("Sending data entry %d (type %d) to %s", iterator.entry.entryNum, iterator.entry.entryType, clientId)
-		_, err = conn.Write(binaryEntry)
+		if conn != nil {
+			_, err = conn.Write(binaryEntry)
+		} else {
+			err = errors.New("error nil connection")
+		}
 		if err != nil {
-			log.Errorf("Error sending entry %d to %s", iterator.entry.entryNum, clientId)
+			log.Errorf("Error sending entry %d to %s: %v", iterator.entry.entryNum, clientId, err)
 			return err
 		}
 	}
@@ -527,11 +548,15 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	log.Debugf("result entry: %v", binaryEntry)
 
 	// Send the result entry to the client
+	var err error
 	conn := s.clients[clientId].conn
-	_, err := conn.Write(binaryEntry)
+	if conn != nil {
+		_, err = conn.Write(binaryEntry)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
-		log.Errorf("Error sending result entry to %s", clientId)
-		s.killClient(clientId)
+		log.Errorf("Error sending result entry to %s: %v", clientId, err)
 		return err
 	}
 	return nil

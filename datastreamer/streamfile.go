@@ -1,6 +1,7 @@
 package datastreamer
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -9,8 +10,13 @@ import (
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
 
+var (
+	magicNumbers = []byte("ZKSTREAM.." + "\x00\x00\x00\x04\x04\x04")
+)
+
 const (
 	// File config
+	magicNumSize   = 16          // Magic numbers size
 	headerSize     = 29          // Header data size
 	pageHeaderSize = 4096        // 4K size header page
 	pageDataSize   = 1024 * 1024 // 1 MB size data page
@@ -123,6 +129,12 @@ func (f *StreamFile) openCreateFile() error {
 	}
 	f.maxLength = uint64(info.Size())
 
+	// Check magic numbers
+	err = f.checkMagicNumbers()
+	if err != nil {
+		return err
+	}
+
 	// Check file consistency
 	err = f.checkFileConsistency()
 	if err != nil {
@@ -173,9 +185,33 @@ func (f *StreamFile) createHeaderPage() error {
 	f.maxLength = f.maxLength + pageHeaderSize
 	f.header.TotalLength = pageHeaderSize
 
+	// Write magic numbers
+	err = f.writeMagicNumbers()
+	if err != nil {
+		return err
+	}
+
 	// Write header entry
 	err = f.writeHeaderEntry()
 	return err
+}
+
+func (f *StreamFile) writeMagicNumbers() error {
+	// Position at the start of the file
+	_, err := f.file.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorf("Error seeking the end of the file: %v", err)
+		return err
+	}
+
+	// Write the magic numbers
+	_, err = f.file.Write(magicNumbers)
+	if err != nil {
+		log.Errorf("Error writing magic numbers: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 // Create/add a new page on the stream file
@@ -225,7 +261,7 @@ func (f *StreamFile) extendFile() error {
 // Read header from file to restore the header struct
 func (f *StreamFile) readHeaderEntry() error {
 	// Position at the beginning of the file
-	_, err := f.file.Seek(0, io.SeekStart)
+	_, err := f.file.Seek(magicNumSize, io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
@@ -260,18 +296,18 @@ func (f *StreamFile) getHeaderEntry() HeaderEntry {
 }
 
 func printHeaderEntry(e HeaderEntry) {
-	log.Debug("--- HEADER ENTRY -------------------------")
-	log.Debugf("packetType: [%d]", e.packetType)
-	log.Debugf("headerLength: [%d]", e.headLength)
-	log.Debugf("streamType: [%d]", e.streamType)
-	log.Debugf("totalLength: [%d]", e.TotalLength)
-	log.Debugf("totalEntries: [%d]", e.TotalEntries)
+	log.Info("--- HEADER ENTRY -------------------------")
+	log.Infof("packetType: [%d]", e.packetType)
+	log.Infof("headerLength: [%d]", e.headLength)
+	log.Infof("streamType: [%d]", e.streamType)
+	log.Infof("totalLength: [%d]", e.TotalLength)
+	log.Infof("totalEntries: [%d]", e.TotalEntries)
 }
 
 // Write the memory header struct into the file header
 func (f *StreamFile) writeHeaderEntry() error {
 	// Position at the beginning of the file
-	_, err := f.file.Seek(0, io.SeekStart)
+	_, err := f.file.Seek(magicNumSize, io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
 		return err
@@ -355,6 +391,31 @@ func (f *StreamFile) checkFileConsistency() error {
 	if uncut != 0 {
 		log.Error("Inconsistent file size there is a cut data page")
 		return errors.New("bad file size cut data page")
+	}
+
+	return nil
+}
+
+func (f *StreamFile) checkMagicNumbers() error {
+	// Position at the beginning of the file
+	_, err := f.file.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorf("Error seeking the start of the file: %v", err)
+		return err
+	}
+
+	// Read magic numbers
+	magic := make([]byte, magicNumSize)
+	_, err = f.file.Read(magic)
+	if err != nil {
+		log.Errorf("Error reading magic numbers: %v", err)
+		return err
+	}
+
+	// Check magic numbers
+	if !bytes.Equal(magic, magicNumbers) {
+		log.Errorf("Invalid magic numbers. Bad file?")
+		return errors.New("bad file format")
 	}
 
 	return nil
@@ -477,11 +538,11 @@ func (f *StreamFile) fillPagePadEntries() error {
 }
 
 func printStreamFile(f StreamFile) {
-	log.Debug("--- STREAM FILE --------------------------")
-	log.Debugf("fileName: [%s]", f.fileName)
-	log.Debugf("pageSize: [%d]", f.pageSize)
-	log.Debugf("streamType: [%d]", f.streamType)
-	log.Debugf("maxLength: [%d]", f.maxLength)
+	log.Info("--- STREAM FILE --------------------------")
+	log.Infof("fileName: [%s]", f.fileName)
+	log.Infof("pageSize: [%d]", f.pageSize)
+	log.Infof("streamType: [%d]", f.streamType)
+	log.Infof("maxLength: [%d]", f.maxLength)
 	printHeaderEntry(f.header)
 }
 

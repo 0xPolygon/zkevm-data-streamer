@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+	"go.uber.org/zap/zapcore"
 )
 
 type StreamClient struct {
@@ -173,13 +174,15 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	}
 
 	// Log data entry fields
-	if d.packetType == PtData {
+	if log.GetLevel() == zapcore.DebugLevel && d.packetType == PtData {
 		entity := c.entriesDefinition[d.entryType]
 		if entity.Name != "" {
-			log.Infof("Data entry (%s) %d|%d|%d|%d| %s", c.id, d.packetType, d.length, d.entryType, d.entryNum, entity.toString(d.data))
+			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, d.entryNum, d.packetType, d.length, d.entryType, entity.toString(d.data))
 		} else {
-			log.Warnf("Data entry (%s) %d|%d|%d|%d| No definition for this entry type", c.id, d.packetType, d.length, d.entryType, d.entryNum)
+			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, d.entryNum, d.packetType, d.length, d.entryType)
 		}
+	} else {
+		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, d.entryNum, d.packetType, d.length, d.entryType, len(d.data))
 	}
 
 	return d, nil
@@ -214,7 +217,12 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 	buffer := make([]byte, 8)
 	binary.BigEndian.PutUint64(buffer, uint64(value))
 
-	_, err := conn.Write(buffer)
+	var err error
+	if conn != nil {
+		_, err = conn.Write(buffer)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
 		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
 		return err
