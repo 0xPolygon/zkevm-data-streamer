@@ -2,10 +2,8 @@ package db
 
 import (
 	"encoding/binary"
-	"unsafe"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
-	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -29,24 +27,12 @@ type L2Block struct {
 
 // Encode returns the encoded L2Block as a byte slice
 func (b L2Block) Encode() []byte {
-	log.Debugf("BatchNumber: %v", b.BatchNumber)
-	var bigEndian = (*(*[2]uint8)(unsafe.Pointer(&[]uint16{1}[0])))[0] == 0
-
 	bytes := make([]byte, 0)
-	if bigEndian {
-		bytes = binary.BigEndian.AppendUint64(bytes, b.BatchNumber)
-		bytes = binary.BigEndian.AppendUint64(bytes, b.L2BlockNumber)
-		bytes = binary.BigEndian.AppendUint64(bytes, uint64(b.Timestamp))
-	} else {
-		bytes = binary.LittleEndian.AppendUint64(bytes, b.BatchNumber)
-		bytes = binary.LittleEndian.AppendUint64(bytes, b.L2BlockNumber)
-		bytes = binary.LittleEndian.AppendUint64(bytes, uint64(b.Timestamp))
-	}
+	bytes = binary.LittleEndian.AppendUint64(bytes, b.BatchNumber)
+	bytes = binary.LittleEndian.AppendUint64(bytes, b.L2BlockNumber)
+	bytes = binary.LittleEndian.AppendUint64(bytes, uint64(b.Timestamp))
 	bytes = append(bytes, b.GlobalExitRoot.Bytes()...)
 	bytes = append(bytes, b.Coinbase.Bytes()...)
-
-	log.Debugf("Encoded L2Block: %v", bytes)
-
 	return bytes
 }
 
@@ -61,20 +47,11 @@ type L2Transaction struct {
 
 // Encode returns the encoded L2Transaction as a byte slice
 func (l L2Transaction) Encode() []byte {
-	var bigEndian = (*(*[2]uint8)(unsafe.Pointer(&[]uint16{1}[0])))[0] == 0
 	bytes := make([]byte, 0)
-	if bigEndian {
-		bytes = binary.BigEndian.AppendUint64(bytes, l.BatchNumber)
-	} else {
-		bytes = binary.LittleEndian.AppendUint64(bytes, l.BatchNumber)
-	}
-	bytes = append(bytes, l.EffectiveGasPricePercentage)
-	bytes = append(bytes, l.IsValid)
-	if !bigEndian {
-		bytes = binary.BigEndian.AppendUint32(bytes, l.EncodedLength)
-	} else {
-		bytes = binary.LittleEndian.AppendUint32(bytes, l.EncodedLength)
-	}
+	bytes = binary.LittleEndian.AppendUint64(bytes, l.BatchNumber)
+	bytes = append(bytes, byte(l.EffectiveGasPricePercentage))
+	bytes = append(bytes, byte(l.IsValid))
+	bytes = binary.LittleEndian.AppendUint32(bytes, l.EncodedLength)
 	bytes = append(bytes, l.Encoded...)
 	return bytes
 }
