@@ -89,7 +89,7 @@ func scanL2Block(row pgx.Row) (*L2Block, error) {
 }
 
 func (db *StateDB) GetL2Transactions(ctx context.Context, minL2Block, maxL2Block uint64) ([]*L2Transaction, error) {
-	const l2TxSQL = `SELECT t.effective_percentage, t.encoded, b.batch_num
+	const l2TxSQL = `SELECT t.effective_percentage, LENGTH(t.encoded), t.encoded, b.batch_num
 					 FROM state.transaction t, state.batch b, state.l2block l2b 
 					 WHERE l2_block_num BETWEEN $1 AND $2 AND t.l2_block_num = l2b.block_num AND l2b.batch_num = b.batch_num
 					 ORDER BY t.l2_block_num ASC`
@@ -117,12 +117,12 @@ func scanL2Transaction(row pgx.Row) (*L2Transaction, error) {
 	l2Transaction := L2Transaction{}
 	if err := row.Scan(
 		&l2Transaction.EffectiveGasPricePercentage,
+		&l2Transaction.EncodedLength,
 		&l2Transaction.Encoded,
 		&l2Transaction.BatchNumber,
 	); err != nil {
 		return &l2Transaction, err
 	}
-	l2Transaction.EncodedLength = uint32(len(l2Transaction.Encoded))
 	l2Transaction.IsValid = 1
 	return &l2Transaction, nil
 }
