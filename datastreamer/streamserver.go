@@ -22,9 +22,10 @@ type CommandError uint32
 
 const (
 	// Commands
-	CmdStart  Command = 1
-	CmdStop   Command = 2
-	CmdHeader Command = 3
+	CmdUnknown Command = 0
+	CmdStart   Command = 1
+	CmdStop    Command = 2
+	CmdHeader  Command = 3
 
 	// Command errors
 	CmdErrOK             CommandError = 0
@@ -55,9 +56,10 @@ var (
 	}
 
 	StrCommand = map[Command]string{
-		CmdStart:  "Start",
-		CmdStop:   "Stop",
-		CmdHeader: "Header",
+		CmdUnknown: "Unknown",
+		CmdStart:   "Start",
+		CmdStop:    "Stop",
+		CmdHeader:  "Header",
 	}
 
 	StrCommandErrors = map[CommandError]string{
@@ -349,7 +351,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 				if err != nil {
 					// Kill client connection
-					log.Errorf("Error sending entry to %s: %v", id, err)
+					log.Warnf("Error sending entry to %s: %v", id, err)
 					s.killClient(id)
 				}
 			}
@@ -480,7 +482,7 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 		err = errors.New("error nil connection")
 	}
 	if err != nil {
-		log.Errorf("Error sending header entry to %s: %v", clientId, err)
+		log.Warnf("Error sending header entry to %s: %v", clientId, err)
 		return err
 	}
 	return nil
@@ -518,7 +520,7 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 			err = errors.New("error nil connection")
 		}
 		if err != nil {
-			log.Errorf("Error sending entry %d to %s: %v", iterator.entry.entryNum, clientId, err)
+			log.Warnf("Error sending entry %d to %s: %v", iterator.entry.entryNum, clientId, err)
 			return err
 		}
 	}
@@ -556,7 +558,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 		err = errors.New("error nil connection")
 	}
 	if err != nil {
-		log.Errorf("Error sending result entry to %s: %v", clientId, err)
+		log.Warnf("Error sending result entry to %s: %v", clientId, err)
 		return err
 	}
 	return nil
@@ -570,7 +572,7 @@ func readFullUint64(conn net.Conn) (uint64, error) {
 		if err == io.EOF {
 			log.Infof("Client %s close connection", conn.RemoteAddr().String())
 		} else {
-			log.Errorf("Error reading from client: %v", err)
+			log.Warnf("Error reading from client: %v", err)
 		}
 		return 0, err
 	}

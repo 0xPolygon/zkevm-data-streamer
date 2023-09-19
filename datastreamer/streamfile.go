@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	magicNumbers = []byte("ZKSTREAM.." + "\x00\x00\x00\x04\x04\x04")
+	magicNumbers = []byte("polygonDATSTREAM")
 )
 
 const (
@@ -20,8 +20,8 @@ const (
 	headerSize     = 29          // Header data size
 	pageHeaderSize = 4096        // 4K size header page
 	pageDataSize   = 1024 * 1024 // 1 MB size data page
-	initPages      = 80          // Initial number of data pages
-	nextPages      = 8           // Number of data pages to add when file is full
+	initPages      = 100         // Initial number of data pages
+	nextPages      = 10          // Number of data pages to add when file is full
 
 	// Packet types
 	PtPadding = 0
@@ -302,6 +302,16 @@ func printHeaderEntry(e HeaderEntry) {
 	log.Infof("streamType: [%d]", e.streamType)
 	log.Infof("totalLength: [%d]", e.TotalLength)
 	log.Infof("totalEntries: [%d]", e.TotalEntries)
+
+	var usedPages uint64
+	if e.TotalLength == 0 {
+		usedPages = 0
+	} else if (e.TotalLength-pageHeaderSize)%pageDataSize == 0 {
+		usedPages = (e.TotalLength - pageHeaderSize) / pageDataSize
+	} else {
+		usedPages = (e.TotalLength-pageHeaderSize)/pageDataSize + 1
+	}
+	log.Infof("usedDataPages=[%d]", usedPages)
 }
 
 // Write the memory header struct into the file header
@@ -543,6 +553,7 @@ func printStreamFile(f StreamFile) {
 	log.Infof("pageSize: [%d]", f.pageSize)
 	log.Infof("streamType: [%d]", f.streamType)
 	log.Infof("maxLength: [%d]", f.maxLength)
+	log.Infof("numDataPages=[%d]", (f.maxLength-pageHeaderSize)/pageDataSize)
 	printHeaderEntry(f.header)
 }
 

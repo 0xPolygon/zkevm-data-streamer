@@ -197,13 +197,13 @@ func runClient(*cli.Context) error {
 		return err
 	}
 
-	// Get header status (execute command Header)
+	// Command header: Get status
 	err = c.ExecCommand(datastreamer.CmdHeader)
 	if err != nil {
 		return err
 	}
 
-	// Start streaming receive (execute command Start)
+	// Command start: Sync and start streaming receive
 	if c.Header.TotalEntries > 10 {
 		c.FromEntry = c.Header.TotalEntries - 10
 	} else {
@@ -213,6 +213,13 @@ func runClient(*cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Command stop: Stop streaming receive
+	// time.Sleep(10 * time.Second)
+	// err = c.ExecCommand(datastreamer.CmdStop)
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
