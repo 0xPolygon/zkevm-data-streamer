@@ -3,7 +3,7 @@ module github.com/0xPolygonHermez/zkevm-data-streamer
 go 1.19
 
 require (
-	github.com/ethereum/go-ethereum v1.13.0
+	github.com/ethereum/go-ethereum v1.13.1
 	github.com/hermeznetwork/tracerr v0.3.2
 	github.com/jackc/pgx/v4 v4.18.1
 	github.com/mitchellh/mapstructure v1.5.0
