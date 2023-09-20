@@ -112,7 +112,7 @@ func runServer(*cli.Context) error {
 
 		rand.Seed(time.Now().UnixNano())
 
-		for n := 1; n <= 1000; n++ {
+		for n := 1; n <= 1000000; n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
@@ -128,7 +128,7 @@ func runServer(*cli.Context) error {
 				return
 			}
 			// Tx
-			numTx := rand.Intn(20) + 1
+			numTx := 1 //rand.Intn(20) + 1
 			for i := 1; i <= numTx; i++ {
 				_, err = s.AddStreamEntry(2, dataTx)
 				if err != nil {
@@ -153,7 +153,7 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlock
 			}
 
-			time.Sleep(2000 * time.Millisecond)
+			// time.Sleep(200 * time.Millisecond)
 		}
 	}()
 	// ------------------------------------------------------------
@@ -172,6 +172,7 @@ func runServer(*cli.Context) error {
 func runClient(*cli.Context) error {
 	// Create client
 	c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
+	// c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
 	if err != nil {
 		return err
 	}

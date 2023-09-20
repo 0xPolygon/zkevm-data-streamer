@@ -222,6 +222,9 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 }
 
 func (s *StreamServer) StartAtomicOp() error {
+	start := time.Now().UnixNano()
+	defer log.Infof("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
+
 	log.Infof("!!!Start AtomicOp (%d)", s.nextEntry)
 	if s.atomicOp.status == aoStarted {
 		log.Errorf("AtomicOp already started and in progress after entry %d", s.atomicOp.startEntry)
@@ -234,6 +237,9 @@ func (s *StreamServer) StartAtomicOp() error {
 }
 
 func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, error) {
+	start := time.Now().UnixNano()
+	defer log.Infof("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
+
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtData,
@@ -271,6 +277,9 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 }
 
 func (s *StreamServer) CommitAtomicOp() error {
+	start := time.Now().UnixNano()
+	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
+
 	log.Infof("!!!Commit AtomicOp (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
@@ -286,7 +295,14 @@ func (s *StreamServer) CommitAtomicOp() error {
 	}
 
 	// Do broadcast of the commited atomic operation to the stream clients
-	s.stream <- s.atomicOp
+	atomic := streamAO{
+		status:     s.atomicOp.status,
+		startEntry: s.atomicOp.startEntry,
+	}
+	atomic.entries = make([]FileEntry, len(s.atomicOp.entries))
+	copy(atomic.entries, s.atomicOp.entries)
+
+	s.stream <- atomic
 
 	// No atomic operation in progress
 	s.clearAtomicOp()
@@ -295,6 +311,9 @@ func (s *StreamServer) CommitAtomicOp() error {
 }
 
 func (s *StreamServer) RollbackAtomicOp() error {
+	start := time.Now().UnixNano()
+	defer log.Infof("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
+
 	log.Infof("!!!Rollback AtomicOp (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
