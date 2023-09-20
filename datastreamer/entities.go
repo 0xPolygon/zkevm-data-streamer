@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"unsafe"
-
-	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
 
 type EntityDefinition struct {
@@ -32,8 +30,6 @@ func (e EntityDefinition) toString(entity []byte) string {
 		if i < val.NumField()-1 {
 			stringValue += ", "
 		}
-
-		log.Debug(stringValue)
 	}
 	return stringValue
 }
