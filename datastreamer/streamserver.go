@@ -346,10 +346,12 @@ func (s *StreamServer) clearAtomicOp() {
 }
 
 func (s *StreamServer) broadcastAtomicOp() {
+
 	var err error
 	for {
 		// Wait for new atomic operation to broadcast
 		broadcastOp := <-s.stream
+		start := time.Now().UnixMilli()
 
 		// For each connected and started client
 		log.Infof("STREAM clients: %d, AtomicOP entries: %d", len(s.clients), len(broadcastOp.entries))
@@ -377,6 +379,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 			}
 		}
+		log.Infof("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
 	}
 }
 
