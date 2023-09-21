@@ -180,7 +180,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	clientId := conn.RemoteAddr().String()
-	log.Infof("New connection: %s", clientId)
+	log.Debugf("New connection: %s", clientId)
 
 	s.clients[clientId] = &client{
 		conn:   conn,
@@ -589,7 +589,7 @@ func readFullUint64(conn net.Conn) (uint64, error) {
 	n, err := io.ReadFull(conn, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Infof("Client %s close connection", conn.RemoteAddr().String())
+			log.Debugf("Client %s close connection", conn.RemoteAddr().String())
 		} else {
 			log.Warnf("Error reading from client: %v", err)
 		}

@@ -3,9 +3,7 @@ package main
 import (
 	"math/rand"
 	"os"
-	"os/signal"
 	"reflect"
-	"syscall"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
@@ -85,7 +83,7 @@ func runServer(*cli.Context) error {
 		return err
 	}
 
-	time.Sleep(5 * time.Second)
+	// time.Sleep(5 * time.Second)
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
@@ -107,12 +105,14 @@ func runServer(*cli.Context) error {
 	}
 	dataTx := l2tx.Encode()
 
-	go func() {
+	end := make(chan uint8)
+
+	go func(chan uint8) {
 		var latestRollback uint64 = 0
 
 		rand.Seed(time.Now().UnixNano())
 
-		for n := 1; n <= 1000000; n++ {
+		for n := 1; n <= 10000; n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
@@ -155,14 +155,18 @@ func runServer(*cli.Context) error {
 
 			// time.Sleep(200 * time.Millisecond)
 		}
-	}()
+		end <- 0
+	}(end)
 	// ------------------------------------------------------------
 
+	// Wait for finished
+	<-end
+
 	// Wait for ctl+c
-	log.Info(">> Press Control+C to finish...")
-	interruptSignal := make(chan os.Signal, 1)
-	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
-	<-interruptSignal
+	// log.Info(">> Press Control+C to finish...")
+	// interruptSignal := make(chan os.Signal, 1)
+	// signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
+	// <-interruptSignal
 
 	log.Info(">> App end")
 
@@ -171,8 +175,8 @@ func runServer(*cli.Context) error {
 
 func runClient(*cli.Context) error {
 	// Create client
-	c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
-	// c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
+	// c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
+	c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
 	if err != nil {
 		return err
 	}
@@ -214,13 +218,6 @@ func runClient(*cli.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// Command stop: Stop streaming receive
-	// time.Sleep(10 * time.Second)
-	// err = c.ExecCommand(datastreamer.CmdStop)
-	// if err != nil {
-	// 	return err
-	// }
 
 	return nil
 }
