@@ -21,6 +21,8 @@ type StreamType uint64
 type CommandError uint32
 
 const (
+	streamBuffer = 128 // Buffers for the stream channel
+
 	// Commands
 	CmdUnknown Command = 0
 	CmdStart   Command = 1
@@ -121,7 +123,7 @@ func New(port uint16, streamType StreamType, fileName string) (StreamServer, err
 			startEntry: 0,
 			entries:    []FileEntry{},
 		},
-		stream: make(chan streamAO),
+		stream: make(chan streamAO, streamBuffer),
 	}
 
 	// Open (or create) the data stream file
