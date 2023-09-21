@@ -9,10 +9,11 @@
 The first page is the header.  
 Header page size = 4096 bytes
 
+#### Magic numbers
+At the beginning of the file there are the following magic bytes (file signature): `polygonDATSTREAM`
 
 #### Header entry format
 
->u8[16] magicNumbers = "polygonDATSTREAM"
 >u8 packetType = 1  
 >u32 headerLength = 29  
 >u64 streamType // 1:Sequencer  
