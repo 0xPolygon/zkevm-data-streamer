@@ -5,6 +5,10 @@ const DefaultValues = `
 [StreamServer]
 Port = 8080
 Filename = "datastreamer.bin"
+	[Log]
+	Environment = "development" # "production" or "development"
+	Level = "info"
+	Outputs = ["stderr"]
 
 [StateDB]
 User = "state_user"

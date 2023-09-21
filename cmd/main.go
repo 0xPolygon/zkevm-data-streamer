@@ -56,7 +56,7 @@ func runServer(*cli.Context) error {
 	log.Info(">> App begin")
 
 	// Create stream server
-	s, err := datastreamer.New(6900, StSequencer, "streamfile.bin")
+	s, err := datastreamer.New(6900, StSequencer, "streamfile.bin", nil)
 	if err != nil {
 		os.Exit(1)
 	}
