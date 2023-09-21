@@ -2,6 +2,10 @@
 [StreamServer]
 Port = 6900
 Filename = "streamfile.bin"
+    [Log]
+    Environment = "development"
+    Level = "info"
+    Outputs = ["stdout"]
 
 [StateDB]
 User = "state_user"
@@ -11,8 +15,3 @@ Host = "localhost"
 Port = "5432"
 EnableLog = false	
 MaxConns = 200
-
-[Log]
-Environment = "development"
-Level = "info"
-Outputs = ["stdout"]

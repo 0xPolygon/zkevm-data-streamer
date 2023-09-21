@@ -68,11 +68,11 @@ func start(cliCtx *cli.Context) error {
 	log.Infof("Loaded configuration: %+v", c)
 
 	// Init logger
-	log.Init(c.LogConfig)
+	log.Init(c.StreamServer.Log)
 	log.Info("Starting tool")
 
 	// Create a stream server
-	streamServer, err := datastreamer.New(c.StreamServer.Port, db.StreamTypeSequencer, c.StreamServer.Filename)
+	streamServer, err := datastreamer.New(c.StreamServer.Port, db.StreamTypeSequencer, c.StreamServer.Filename, &c.StreamServer.Log)
 	if err != nil {
 		log.Fatal(err)
 	}

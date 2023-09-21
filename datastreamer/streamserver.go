@@ -107,7 +107,7 @@ type ResultEntry struct {
 	errorStr   []byte
 }
 
-func New(port uint16, streamType StreamType, fileName string) (StreamServer, error) {
+func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:     port,
@@ -135,6 +135,11 @@ func New(port uint16, streamType StreamType, fileName string) (StreamServer, err
 
 	// Initialize the data entry number
 	s.nextEntry = s.sf.header.TotalEntries
+
+	// Initialize the logger
+	if cfg != nil {
+		log.Init(*cfg)
+	}
 
 	return s, nil
 }
