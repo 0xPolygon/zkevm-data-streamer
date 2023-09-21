@@ -694,12 +694,12 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 			log.Errorf("Error reading new packet type for iterator: %v", err)
 			return true, err
 		}
+	}
 
-		// Should be of type data
-		if packet[0] != PtData {
-			log.Errorf("Error data page not starting with packet of type data. Type: %d", packet[0])
-			return true, errors.New("page not starting with entry data")
-		}
+	// Should be of type data
+	if packet[0] != PtData {
+		log.Errorf("Error expecting packet of type data(%d). Read: %d", PtData, packet[0])
+		return true, errors.New("error expecting packet type data")
 	}
 
 	// Read the rest of fixed data entry bytes
