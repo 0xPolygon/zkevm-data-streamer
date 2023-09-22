@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"os"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -604,18 +605,12 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 	return d, nil
 }
 
+// Initialize iterator to locate a data entry number in the stream file
 func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 	// Open file for read only
 	file, err := os.OpenFile(f.fileName, os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		log.Errorf("Error opening file for iterator: %v", err)
-		return nil, err
-	}
-
-	// Set the file position to first data page
-	_, err = file.Seek(pageHeaderSize, io.SeekStart)
-	if err != nil {
-		log.Errorf("Error seeking file for iterator: %v", err)
 		return nil, err
 	}
 
@@ -628,28 +623,13 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 		},
 	}
 
-	// TODO: Locate file start streaming point using dichotomic search
-	// err = f.seekEntry(&iterator)
-	if entryNum > 0 {
-		for {
-			end, err := f.iteratorNext(&iterator)
-			if err != nil {
-				return nil, err
-			}
-
-			if end {
-				break
-			}
-
-			if iterator.entry.entryNum+1 == entryNum {
-				break
-			}
-		}
-	}
+	// Locate the file start stream point using custom dichotomic search
+	err = f.seekEntry(&iterator)
 
 	return &iterator, err
 }
 
+// Next data entry in the stream file for the iterator
 func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Check end of entries condition
 	if iterator.entry.entryNum == f.writtenHead.TotalEntries {
@@ -740,173 +720,182 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	return false, nil
 }
 
+// Finalize file iterator
 func (f *StreamFile) iteratorEnd(iterator *iteratorFile) {
 	iterator.file.Close()
 }
 
-// func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
-// 	// Start and end data page
-// 	avg := 0
-// 	beg := 1
-// 	end := int((f.writtenHead.TotalLength - pageHeaderSize) / pageDataSize)
-// 	if (f.writtenHead.TotalLength-pageHeaderSize)%pageDataSize != 0 {
-// 		end = end + 1
-// 	}
+// Uses a file iterator to locate a data entry number using custom binary search
+func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
+	// Start and end data pages
+	avg := 0
+	beg := 0
+	end := int((f.writtenHead.TotalLength - pageHeaderSize) / pageDataSize)
+	if (f.writtenHead.TotalLength-pageHeaderSize)%pageDataSize != 0 {
+		end = end + 1
+	}
 
-// 	// Custom binary search
-// 	for beg <= end {
-// 		avg = beg + (end-beg)/2
+	// Custom binary search
+	for beg <= end {
+		avg = beg + (end-beg)/2
 
-// 		// Seek for the start of avg data page
-// 		newPos := (avg * pageDataSize) + pageHeaderSize
-// 		_, err := iterator.file.Seek(int64(newPos), io.SeekStart)
-// 		if err != nil {
-// 			log.Errorf("Error seeking page for iterator seek entry: %v", err)
-// 			return err
-// 		}
+		// Seek for the start of avg data page
+		newPos := (avg * pageDataSize) + pageHeaderSize
+		_, err := iterator.file.Seek(int64(newPos), io.SeekStart)
+		if err != nil {
+			log.Errorf("Error seeking page for iterator seek entry: %v", err)
+			return err
+		}
 
-// 		// Read fixed data entry bytes
-// 		buffer := make([]byte, FixedSizeFileEntry)
-// 		_, err = iterator.file.Read(buffer)
-// 		if err != nil {
-// 			log.Errorf("Error reading entry for iterator seek entry: %v", err)
-// 			return err
-// 		}
+		// Read fixed data entry bytes
+		buffer := make([]byte, FixedSizeFileEntry)
+		_, err = iterator.file.Read(buffer)
+		if err != nil {
+			log.Errorf("Error reading entry for iterator seek entry: %v", err)
+			return err
+		}
 
-// 		// Decode packet type
-// 		packetType := buffer[0]
-// 		if packetType != PtData {
-// 			log.Errorf("Error data page %d not starting with packet of type data. Type: %d", avg, packetType)
-// 			return errors.New("page not starting with entry data")
-// 		}
+		// Decode packet type
+		packetType := buffer[0]
+		if packetType != PtData {
+			log.Errorf("Error data page %d not starting with packet of type data. Type: %d", avg, packetType)
+			return errors.New("page not starting with entry data")
+		}
 
-// 		// Decode entry number and compare it with the one we are looking for
-// 		entryNum := binary.BigEndian.Uint64(buffer[9:17])
-// 		if entryNum == iterator.fromEntry {
-// 			// Found! the first of the page
-// 			break
-// 		} else if entryNum > iterator.fromEntry {
-// 			// Bigger value, cut half the search pages
-// 			end = avg - 1
-// 		} else if entryNum < iterator.fromEntry {
-// 			// Smaller value but could be inside the page, let's check it
-// 			nextPageEntryNum, err := f.getFirstEntryOnNextPage(iterator)
-// 			if err != nil {
-// 				return err
-// 			}
+		// Decode entry number and compare it with the one we are looking for
+		entryNum := binary.BigEndian.Uint64(buffer[9:17])
+		if entryNum == iterator.fromEntry {
+			// Found! the first of the page
+			break
+		} else if beg == end {
+			// Should be found in this page
+			err = f.locateEntry(iterator)
+			if err != nil {
+				return err
+			}
+			break
+		} else if entryNum > iterator.fromEntry {
+			// Bigger value, cut half the search pages
+			end = avg - 1
+		} else if entryNum < iterator.fromEntry {
+			// Smaller value but could be inside the page, let's check it
+			nextPageEntryNum, err := f.getFirstEntryOnNextPage(iterator)
+			if err != nil {
+				return err
+			}
 
-// 			// Smaller value committed, cut half the search pages
-// 			if nextPageEntryNum <= iterator.fromEntry {
-// 				beg = avg + 1
-// 			} else {
-// 				// Should be found in this page
-// 				err = f.locateEntry(iterator)
-// 				if err != nil {
-// 					return err
-// 				}
-// 				break
-// 			}
-// 		} else if beg == end {
-// 			// Should be found in this page
-// 			err = f.locateEntry(iterator)
-// 			if err != nil {
-// 				return err
-// 			}
-// 			break
-// 		}
-// 	}
+			// Smaller value committed, cut half the search pages
+			if nextPageEntryNum <= iterator.fromEntry {
+				beg = avg + 1
+			} else {
+				// First of next page is bigger so should be found in this page
+				err = f.locateEntry(iterator)
+				if err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
 
-// 	// Back to the start of the data entry
-// 	_, err := iterator.file.Seek(-FixedSizeFileEntry, io.SeekCurrent)
-// 	if err != nil {
-// 		log.Errorf("Error seeking page for iterator seek entry: %v", err)
-// 		return err
-// 	}
+	// Back to the start of the data entry
+	_, err := iterator.file.Seek(-FixedSizeFileEntry, io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error seeking page for iterator seek entry: %v", err)
+		return err
+	}
 
-// 	log.Debugf("Entry number %d is in the data page %d", iterator.fromEntry, avg)
-// 	return nil
-// }
+	log.Debugf("Entry number %d is in the data page %d", iterator.fromEntry, avg)
+	return nil
+}
 
-// func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, error) {
-// 	// Current file position
-// 	curpos, err := iterator.file.Seek(0, io.SeekCurrent)
-// 	if err != nil {
-// 		log.Errorf("Error seeking current pos: %v", err)
-// 		return 0, err
-// 	}
+// Get the first data entry number on next page using an iterator
+func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, error) {
+	// Current file position
+	curpos, err := iterator.file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error seeking current pos: %v", err)
+		return 0, err
+	}
 
-// 	// Check if it is valid the current file position
-// 	if curpos < pageHeaderSize || curpos > int64(f.writtenHead.TotalLength) {
-// 		log.Errorf("Error current file position outside a data page")
-// 		return 0, errors.New("current position outside data page")
-// 	}
+	// Check if it is valid the current file position
+	if curpos < pageHeaderSize || curpos > int64(f.writtenHead.TotalLength) {
+		log.Errorf("Error current file position outside a data page")
+		return 0, errors.New("current position outside data page")
+	}
 
-// 	// Seek for the start of next data page
-// 	forward := pageDataSize - (curpos-pageHeaderSize)%pageDataSize
-// 	_, err = iterator.file.Seek(int64(forward), io.SeekCurrent)
-// 	if err != nil {
-// 		log.Errorf("Error seeking next data page: %v", err)
-// 		return 0, err
-// 	}
+	// Check if exists another data page
+	forward := pageDataSize - (curpos-pageHeaderSize)%pageDataSize
+	if curpos+forward >= int64(f.writtenHead.TotalLength) {
+		return math.MaxUint64, nil
+	}
 
-// 	// Read fixed data entry bytes
-// 	buffer := make([]byte, FixedSizeFileEntry)
-// 	_, err = iterator.file.Read(buffer)
-// 	if err != nil {
-// 		log.Errorf("Error reading entry: %v", err)
-// 		return 0, err
-// 	}
+	// Seek for the start of next data page
+	_, err = iterator.file.Seek(int64(forward), io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error seeking next data page: %v", err)
+		return 0, err
+	}
 
-// 	// Decode packet type
-// 	if buffer[0] != PtData {
-// 		log.Errorf("Error data page not starting with packet of type data(%d). Type: %d", PtData, buffer[0])
-// 		return 0, errors.New("page not starting with entry data")
-// 	}
+	// Read fixed data entry bytes
+	buffer := make([]byte, FixedSizeFileEntry)
+	_, err = iterator.file.Read(buffer)
+	if err != nil {
+		log.Errorf("Error reading entry: %v", err)
+		return 0, err
+	}
 
-// 	// Decode entry number
-// 	entryNum := binary.BigEndian.Uint64(buffer[9:17])
+	// Decode packet type
+	if buffer[0] != PtData {
+		log.Errorf("Error data page not starting with packet of type data(%d). Type: %d", PtData, buffer[0])
+		return 0, errors.New("page not starting with entry data")
+	}
 
-// 	// Restore file position
-// 	_, err = iterator.file.Seek(-int64(forward), io.SeekCurrent)
-// 	if err != nil {
-// 		log.Errorf("Error seeking current pos: %v", err)
-// 		return 0, err
-// 	}
+	// Decode entry number
+	entryNum := binary.BigEndian.Uint64(buffer[9:17])
 
-// 	return entryNum, nil
-// }
+	// Restore file position
+	_, err = iterator.file.Seek(-int64(forward+FixedSizeFileEntry), io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error seeking current pos: %v", err)
+		return 0, err
+	}
 
-// func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
-// 	// Seek backward to the start of data entry
-// 	_, err := iterator.file.Seek(-FixedSizeFileEntry, io.SeekCurrent)
-// 	if err != nil {
-// 		log.Errorf("Error in file seeking: %v", err)
-// 		return err
-// 	}
+	return entryNum, nil
+}
 
-// 	for {
-// 		end, err := f.iteratorNext(iterator)
-// 		if err != nil {
-// 			return err
-// 		}
+// Locate the entry number we are looking for using the sequential iterator
+func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
+	// Seek backward to the start of data entry
+	_, err := iterator.file.Seek(-FixedSizeFileEntry, io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error in file seeking: %v", err)
+		return err
+	}
 
-// 		// Not found
-// 		if end || iterator.entry.entryNum > iterator.fromEntry {
-// 			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
-// 			return errors.New("entry not found")
-// 		}
+	for {
+		end, err := f.iteratorNext(iterator)
+		if err != nil {
+			return err
+		}
 
-// 		// Found!
-// 		if iterator.entry.entryNum == iterator.fromEntry {
-// 			// Seek backward to the end of fixed data
-// 			backward := iterator.entry.length - FixedSizeFileEntry
-// 			_, err = iterator.file.Seek(-int64(backward), io.SeekCurrent)
-// 			if err != nil {
-// 				log.Errorf("Error in file seeking: %v", err)
-// 				return err
-// 			}
-// 			break
-// 		}
-// 	}
-// 	return nil
-// }
+		// Not found
+		if end || iterator.entry.entryNum > iterator.fromEntry {
+			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
+			return errors.New("entry not found")
+		}
+
+		// Found!
+		if iterator.entry.entryNum == iterator.fromEntry {
+			// Seek backward to the end of fixed data
+			backward := iterator.entry.length - FixedSizeFileEntry
+			_, err = iterator.file.Seek(-int64(backward), io.SeekCurrent)
+			if err != nil {
+				log.Errorf("Error in file seeking: %v", err)
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}

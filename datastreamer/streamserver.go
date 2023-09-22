@@ -126,6 +126,11 @@ func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (
 		stream: make(chan streamAO, streamBuffer),
 	}
 
+	// Initialize the logger
+	if cfg != nil {
+		log.Init(*cfg)
+	}
+
 	// Open (or create) the data stream file
 	var err error
 	s.sf, err = PrepareStreamFile(s.fileName, s.streamType)
@@ -135,11 +140,6 @@ func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (
 
 	// Initialize the data entry number
 	s.nextEntry = s.sf.header.TotalEntries
-
-	// Initialize the logger
-	if cfg != nil {
-		log.Init(*cfg)
-	}
 
 	return s, nil
 }
