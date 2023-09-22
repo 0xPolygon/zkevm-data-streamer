@@ -8,5 +8,5 @@ type Config struct {
 	// Filename of the binary data file
 	Filename string `mapstructure:"Filename"`
 	// Log
-	Log log.Config `mapstructure:"Logs"`
+	Log log.Config `mapstructure:"Log"`
 }

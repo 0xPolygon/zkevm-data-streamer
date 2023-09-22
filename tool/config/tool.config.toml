@@ -2,9 +2,9 @@
 [StreamServer]
 Port = 6900
 Filename = "streamfile.bin"
-    [Log]
+    [StreamServer.Log]
     Environment = "development"
-    Level = "info"
+    Level = "debug"
     Outputs = ["stdout"]
 
 [StateDB]
