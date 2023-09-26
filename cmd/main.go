@@ -153,7 +153,7 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlock
 			}
 
-			// time.Sleep(200 * time.Millisecond)
+			// time.Sleep(5000 * time.Millisecond)
 		}
 		end <- 0
 	}(end)
