@@ -24,10 +24,9 @@ const (
 	streamBuffer = 128 // Buffers for the stream channel
 
 	// Commands
-	CmdUnknown Command = 0
-	CmdStart   Command = 1
-	CmdStop    Command = 2
-	CmdHeader  Command = 3
+	CmdStart  Command = 1
+	CmdStop   Command = 2
+	CmdHeader Command = 3
 
 	// Command errors
 	CmdErrOK             CommandError = 0
@@ -58,10 +57,9 @@ var (
 	}
 
 	StrCommand = map[Command]string{
-		CmdUnknown: "Unknown",
-		CmdStart:   "Start",
-		CmdStop:    "Stop",
-		CmdHeader:  "Header",
+		CmdStart:  "Start",
+		CmdStop:   "Stop",
+		CmdHeader: "Header",
 	}
 
 	StrCommandErrors = map[CommandError]string{
@@ -86,7 +84,7 @@ type StreamServer struct {
 	stream    chan streamAO // Channel to stream committed atomic operations
 	sf        StreamFile
 
-	entriesDefinition map[EntryType]EntityDefinition
+	entriesDef map[EntryType]EntityDefinition
 }
 
 type streamAO struct {
@@ -163,8 +161,8 @@ func (s *StreamServer) Start() error {
 	return nil
 }
 
-func (s *StreamServer) SetEntriesDefinition(entriesDef map[EntryType]EntityDefinition) {
-	s.entriesDefinition = entriesDef
+func (s *StreamServer) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) {
+	s.entriesDef = entriesDef
 }
 
 func (s *StreamServer) waitConnections() {
@@ -258,7 +256,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 
 	// Log data entry fields
 	if log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
-		entity := s.entriesDefinition[etype]
+		entity := s.entriesDef[etype]
 		if entity.Name != "" {
 			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.entryNum, e.packetType, e.length, e.entryType, entity.toString(data))
 		} else {
@@ -351,7 +349,6 @@ func (s *StreamServer) clearAtomicOp() {
 }
 
 func (s *StreamServer) broadcastAtomicOp() {
-
 	var err error
 	for {
 		// Wait for new atomic operation to broadcast

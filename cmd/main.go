@@ -3,7 +3,9 @@ package main
 import (
 	"math/rand"
 	"os"
+	"os/signal"
 	"reflect"
+	"syscall"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
@@ -74,7 +76,7 @@ func runServer(*cli.Context) error {
 			Definition: reflect.TypeOf(db.L2Transaction{}),
 		},
 	}
-	s.SetEntriesDefinition(entriesDefinition)
+	s.SetEntriesDef(entriesDefinition)
 
 	// Start stream server
 	err = s.Start()
@@ -112,7 +114,8 @@ func runServer(*cli.Context) error {
 
 		rand.Seed(time.Now().UnixNano())
 
-		for n := 1; n <= 10000; n++ {
+		// for n := 1; n <= 10000; n++ {
+		for {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
@@ -155,18 +158,18 @@ func runServer(*cli.Context) error {
 
 			// time.Sleep(5000 * time.Millisecond)
 		}
-		end <- 0
+		// end <- 0
 	}(end)
 	// ------------------------------------------------------------
 
 	// Wait for finished
-	<-end
+	// <-end
 
 	// Wait for ctl+c
-	// log.Info(">> Press Control+C to finish...")
-	// interruptSignal := make(chan os.Signal, 1)
-	// signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
-	// <-interruptSignal
+	log.Info(">> Press Control+C to finish...")
+	interruptSignal := make(chan os.Signal, 1)
+	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
+	<-interruptSignal
 
 	log.Info(">> App end")
 
@@ -194,7 +197,7 @@ func runClient(*cli.Context) error {
 			Definition: reflect.TypeOf(db.L2Transaction{}),
 		},
 	}
-	c.SetEntriesDefinition(entriesDefinition)
+	c.SetEntriesDef(entriesDefinition)
 
 	// Start client (connect to the server)
 	err = c.Start()
@@ -219,5 +222,17 @@ func runClient(*cli.Context) error {
 		return err
 	}
 
+	// Run until Ctl+C
+	interruptSignal := make(chan os.Signal, 1)
+	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
+	<-interruptSignal
+
+	// Command stop: Stop streaming
+	err = c.ExecCommand(datastreamer.CmdStop)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Client stopped")
 	return nil
 }
