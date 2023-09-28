@@ -89,20 +89,26 @@ Entry type = 1
 Entry data:  
 >u64 batchNum  
 >u64 blockL2Num  
->u64 Timestamp  
->u8[32] GlobalExitRoot  
->u8[20] CoinBase  
+>u64 timestamp  
+>u8[32] globalExitRoot  
+>u8[20] coinBase
+>u16 forkId
 
 ### L2 TX
 
 Entry type = 2
 
 Entry data:  
->u64  batchNum  
 >u8   gasPricePercentage  
 >u8   isValid  // Intrinsic   
 >u32  encodedTXLength  
->u8[] encodedTX  
+>u8[] encodedTX
+
+### End L2 Block
+
+Entry type = 3
+>u32  l2BlockHash
+>u32  stateRoot
 
 ## API Interface
 
