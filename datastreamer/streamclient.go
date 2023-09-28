@@ -10,17 +10,26 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const (
+	resultsBuffer = 32  // Buffers for the results channel
+	headersBuffer = 32  // Buffers for the headers channel
+	entriesBuffer = 128 // Buffers for the entries channel
+)
+
 type StreamClient struct {
 	server     string // Server address to connect IP:port
 	streamType StreamType
 	conn       net.Conn
 	id         string // Client id
-	streaming  bool   // Is syncing/streaming receive?
 
 	FromEntry uint64      // Set starting entry data (for Start command)
 	Header    HeaderEntry // Header info received (from Header command)
 
-	entriesDefinition map[EntryType]EntityDefinition
+	results chan ResultEntry // Channel to read command results
+	headers chan HeaderEntry // Channel to read header entries from the command Header
+	entries chan FileEntry   // Channel to read data entries from the streaming
+
+	entriesDef map[EntryType]EntityDefinition
 }
 
 func NewClient(server string, streamType StreamType) (StreamClient, error) {
@@ -29,8 +38,11 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		server:     server,
 		streamType: streamType,
 		id:         "",
-		streaming:  false,
 		FromEntry:  0,
+
+		results: make(chan ResultEntry, resultsBuffer),
+		headers: make(chan HeaderEntry, headersBuffer),
+		entries: make(chan FileEntry, entriesBuffer),
 	}
 	return c, nil
 }
@@ -47,11 +59,17 @@ func (c *StreamClient) Start() error {
 	c.id = c.conn.LocalAddr().String()
 	log.Infof("%s Connected to server: %s", c.id, c.server)
 
+	// Goroutine to read from the server all entry types
+	go c.readEntries()
+
+	// Goroutine to consume streaming entries
+	go c.getStreaming()
+
 	return nil
 }
 
-func (c *StreamClient) SetEntriesDefinition(entriesDef map[EntryType]EntityDefinition) {
-	c.entriesDefinition = entriesDef
+func (c *StreamClient) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) {
+	c.entriesDef = entriesDef
 }
 
 func (c *StreamClient) ExecCommand(cmd Command) error {
@@ -78,6 +96,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 
 	// Send the Start command parameter
 	if cmd == CmdStart {
+		log.Infof("%s ...from entry %d", c.id, c.FromEntry)
 		// Send starting/from entry num	ber
 		err = writeFullUint64(c.FromEntry, c.conn)
 		if err != nil {
@@ -86,106 +105,45 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		}
 	}
 
-	if cmd == CmdStop {
-		c.streaming = false
-	} else {
+	// Get command result
+	r := c.getResult(cmd)
+	if r.errorNum != uint32(CmdErrOK) {
+		return errors.New("result command error")
+	}
 
-		// Receive command result
-		err = c.receiveResult(cmd)
-		if err != nil {
-			return err
-		}
-
-		// Manage each command type
-		err = c.manageCommand(cmd)
-		if err != nil {
-			return err
-		}
+	// Get header entry
+	if cmd == CmdHeader {
+		h := c.getHeader()
+		c.Header = h
 	}
 
 	return nil
 }
 
-func (c *StreamClient) receiveResult(cmd Command) error {
-	// Read server result entry for the command
-	r, err := c.readResultEntry(cmd == CmdUnknown)
+func writeFullUint64(value uint64, conn net.Conn) error {
+	buffer := make([]byte, 8)
+	binary.BigEndian.PutUint64(buffer, uint64(value))
+
+	var err error
+	if conn != nil {
+		_, err = conn.Write(buffer)
+	} else {
+		err = errors.New("error nil connection")
+	}
 	if err != nil {
-		log.Errorf("%s %v", c.id, err)
+		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
 		return err
 	}
-	log.Infof("%s Result %d[%s] received for command %d[%s]", c.id, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
 	return nil
 }
 
-func (c *StreamClient) manageCommand(cmd Command) error {
-	switch cmd {
-	case CmdHeader:
-		// Read header entry
-		h, err := c.readHeaderEntry()
-		if err == nil {
-			c.Header = h
-		}
-
-	case CmdStart:
-		// Streaming receive goroutine
-		c.streaming = true
-		c.streamingRead() // TODO: goroutine
-
-	case CmdStop:
-		c.streaming = false
-
-	default:
-		return errors.New("unknown command")
-	}
-	return nil
-}
-
-func (c *StreamClient) streamingRead() {
-	defer c.conn.Close()
-	for {
-		// Stop receiving stream
-		if !c.streaming {
-			return
-		}
-
-		// Wait next data entry streamed
-		_, err := c.readDataEntry()
-		if err != nil {
-			return
-		}
-	}
-}
-
+// Read bytes from server connection and returns a file/stream data entry type
 func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	d := FileEntry{}
 
-	// Read packet type
-	packet := make([]byte, 1)
-	_, err := io.ReadFull(c.conn, packet)
-	if err != nil {
-		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.id)
-		} else {
-			log.Errorf("%s Error reading from server: %v", c.id, err)
-		}
-		return d, err
-	}
-
-	// Check packet type
-	if packet[0] == PtResult {
-		err = c.receiveResult(CmdUnknown)
-		if err != nil {
-			return d, err
-		}
-		return d, nil
-	} else if packet[0] != PtData {
-		log.Errorf("%s Error expecting data packet type %d and received %d", c.id, PtData, packet[0])
-		return d, errors.New("error expecting data packet type")
-	}
-
 	// Read the rest of fixed size fields
 	buffer := make([]byte, FixedSizeFileEntry-1)
-	_, err = io.ReadFull(c.conn, buffer)
+	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Warnf("%s Server close connection", c.id)
@@ -194,6 +152,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 		}
 		return d, err
 	}
+	packet := []byte{PtData}
 	buffer = append(packet, buffer...)
 
 	// Read variable field (data)
@@ -221,38 +180,29 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 		return d, err
 	}
 
-	// Log data entry fields
-	if log.GetLevel() == zapcore.DebugLevel && d.packetType == PtData {
-		entity := c.entriesDefinition[d.entryType]
-		if entity.Name != "" {
-			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, d.entryNum, d.packetType, d.length, d.entryType, entity.toString(d.data))
-		} else {
-			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, d.entryNum, d.packetType, d.length, d.entryType)
-		}
-	} else {
-		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, d.entryNum, d.packetType, d.length, d.entryType, len(d.data))
-	}
-
 	return d, nil
 }
 
+// Read bytes from server connection and returns a header entry type
 func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 	h := HeaderEntry{}
 
-	// Read header stream bytes
-	binaryHeader := make([]byte, headerSize)
-	n, err := io.ReadFull(c.conn, binaryHeader)
+	// Read the rest of header bytes
+	buffer := make([]byte, headerSize-1)
+	n, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		log.Errorf("Error reading the header: %v", err)
 		return h, err
 	}
-	if n != headerSize {
+	if n != headerSize-1 {
 		log.Error("Error getting header info")
 		return h, errors.New("error getting header info")
 	}
+	packet := []byte{PtHeader}
+	buffer = append(packet, buffer...)
 
 	// Decode bytes stream to header entry struct
-	h, err = decodeBinaryToHeaderEntry(binaryHeader)
+	h, err = decodeBinaryToHeaderEntry(buffer)
 	if err != nil {
 		log.Error("Error decoding binary header")
 		return h, err
@@ -261,54 +211,13 @@ func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 	return h, nil
 }
 
-func writeFullUint64(value uint64, conn net.Conn) error {
-	buffer := make([]byte, 8)
-	binary.BigEndian.PutUint64(buffer, uint64(value))
-
-	var err error
-	if conn != nil {
-		_, err = conn.Write(buffer)
-	} else {
-		err = errors.New("error nil connection")
-	}
-	if err != nil {
-		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
-		return err
-	}
-	return nil
-}
-
-func (c *StreamClient) readResultEntry(skipPacket bool) (ResultEntry, error) {
+// Read bytes from server connection and returns a result entry type
+func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	e := ResultEntry{}
-
-	var err error
-	packet := make([]byte, 1)
-
-	// Skip read the packet type because read previosuly in readDataEntry
-	if skipPacket {
-		packet[0] = PtResult
-	} else {
-		// Read packet type
-		_, err = io.ReadFull(c.conn, packet)
-		if err != nil {
-			if err == io.EOF {
-				log.Warnf("%s Server close connection", c.id)
-			} else {
-				log.Errorf("%s Error reading from server: %v", c.id, err)
-			}
-			return e, err
-		}
-
-		// Check packet type
-		if packet[0] != PtResult {
-			log.Errorf("%s Error expecting result packet type %d and received %d", c.id, PtResult, packet[0])
-			return e, errors.New("error expecting result packet type")
-		}
-	}
 
 	// Read the rest of fixed size fields
 	buffer := make([]byte, FixedSizeResultEntry-1)
-	_, err = io.ReadFull(c.conn, buffer)
+	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Warnf("%s Server close connection", c.id)
@@ -317,6 +226,7 @@ func (c *StreamClient) readResultEntry(skipPacket bool) (ResultEntry, error) {
 		}
 		return e, err
 	}
+	packet := []byte{PtResult}
 	buffer = append(packet, buffer...)
 
 	// Read variable field (errStr)
@@ -345,4 +255,103 @@ func (c *StreamClient) readResultEntry(skipPacket bool) (ResultEntry, error) {
 	}
 	// PrintResultEntry(e)
 	return e, nil
+}
+
+// Goroutine to read from the server all type of packets
+func (c *StreamClient) readEntries() {
+	defer c.conn.Close()
+
+	for {
+		// Read packet type
+		packet := make([]byte, 1)
+		_, err := io.ReadFull(c.conn, packet)
+		if err != nil {
+			if err == io.EOF {
+				log.Warnf("%s Server close connection", c.id)
+			} else {
+				log.Errorf("%s Error reading from server: %v", c.id, err)
+			}
+			return
+		}
+
+		// Manage packet type
+		switch packet[0] {
+		case PtResult:
+			// Read result entry data
+			r, err := c.readResultEntry()
+			if err != nil {
+				return
+			}
+			// Send data to results channel
+			c.results <- r
+
+		case PtHeader:
+			// Read header entry data
+			h, err := c.readHeaderEntry()
+			if err != nil {
+				return
+			}
+			// Send data to headers channel
+			c.headers <- h
+
+		case PtData:
+			// Read file/stream entry data
+			e, err := c.readDataEntry()
+			if err != nil {
+				return
+			}
+			// Send data to stream entries channel
+			c.entries <- e
+
+		default:
+			// Unknown type
+			log.Warnf("%s Unknown packet type %d", c.id, packet[0])
+			continue
+		}
+	}
+}
+
+// Consume a result entry
+func (c *StreamClient) getResult(cmd Command) ResultEntry {
+	// Get result entry
+	r := <-c.results
+	log.Infof("%s Result %d[%s] received for command %d[%s]", c.id, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
+	return r
+}
+
+// Consume a header entry
+func (c *StreamClient) getHeader() HeaderEntry {
+	h := <-c.headers
+	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d]", c.id, h.TotalEntries, h.TotalLength)
+	return h
+}
+
+// Goroutine to consume streaming data entries
+func (c *StreamClient) getStreaming() {
+	for {
+		e := <-c.entries
+
+		// Process the data entry
+		err := c.processEntry(e)
+		if err != nil {
+			log.Errorf("%s Error processing entry %d", c.id, e.entryNum)
+		}
+	}
+}
+
+// DO YOUR CUSTOM BUSINESS LOGIC
+func (c *StreamClient) processEntry(e FileEntry) error {
+	// Log data entry fields
+	if log.GetLevel() == zapcore.DebugLevel {
+		entity := c.entriesDef[e.entryType]
+		if entity.Name != "" {
+			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, e.entryNum, e.packetType, e.length, e.entryType, entity.toString(e.data))
+		} else {
+			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, e.entryNum, e.packetType, e.length, e.entryType)
+		}
+	} else {
+		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, e.entryNum, e.packetType, e.length, e.entryType, len(e.data))
+	}
+
+	return nil
 }

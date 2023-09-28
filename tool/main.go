@@ -91,7 +91,7 @@ func start(cliCtx *cli.Context) error {
 		},
 	}
 
-	streamServer.SetEntriesDefinition(entriesDefinition)
+	streamServer.SetEntriesDef(entriesDefinition)
 	err = streamServer.Start()
 	if err != nil {
 		log.Fatal(err)
