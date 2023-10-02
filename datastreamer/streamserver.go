@@ -21,7 +21,8 @@ type StreamType uint64
 type CommandError uint32
 
 const (
-	streamBuffer = 128 // Buffers for the stream channel
+	maxConnections = 100 // Maximum number of connected clients
+	streamBuffer   = 128 // Buffers for the stream channel
 
 	// Commands
 	CmdStart  Command = 1
@@ -172,6 +173,14 @@ func (s *StreamServer) waitConnections() {
 		conn, err := s.ln.Accept()
 		if err != nil {
 			log.Errorf("Error accepting new connection: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Check max connections allowed
+		if len(s.clients) >= maxConnections {
+			log.Warnf("Unable to accept client connection, maximum number of connections reached (%d)", maxConnections)
+			conn.Close()
 			time.Sleep(2 * time.Second)
 			continue
 		}
