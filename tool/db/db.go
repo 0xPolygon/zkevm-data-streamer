@@ -42,9 +42,9 @@ func NewSQLDB(cfg Config) (*pgxpool.Pool, error) {
 }
 
 func (db *StateDB) GetL2Blocks(ctx context.Context, limit, offset uint) ([]*L2Block, error) {
-	const l2BlockSQL = `SELECT l2b.batch_num, l2b.block_num, l2b.created_at, b.global_exit_root, l2b.header->>'miner' AS coinbase 
-						FROM state.l2block l2b, state.batch b 
-						WHERE l2b.batch_num = b.batch_num
+	const l2BlockSQL = `SELECT l2b.batch_num, l2b.block_num, l2b.created_at, b.global_exit_root, l2b.header->>'miner' AS coinbase, f.fork_id, l2b.block_hash, l2b.state_root
+						FROM state.l2block l2b, state.batch b, state.fork_id f
+						WHERE l2b.batch_num = b.batch_num AND l2b.batch_num between f.from_batch_num AND f.to_batch_num
 						ORDER BY l2b.block_num ASC limit $1 offset $2`
 
 	rows, err := db.Query(ctx, l2BlockSQL, limit, offset)
@@ -69,9 +69,11 @@ func (db *StateDB) GetL2Blocks(ctx context.Context, limit, offset uint) ([]*L2Bl
 func scanL2Block(row pgx.Row) (*L2Block, error) {
 	l2Block := L2Block{}
 	var (
-		gerStr      string
-		coinbaseStr string
-		timestamp   time.Time
+		gerStr       string
+		coinbaseStr  string
+		timestamp    time.Time
+		blockHashStr string
+		stateRootStr string
 	)
 	if err := row.Scan(
 		&l2Block.BatchNumber,
@@ -79,19 +81,25 @@ func scanL2Block(row pgx.Row) (*L2Block, error) {
 		&timestamp,
 		&gerStr,
 		&coinbaseStr,
+		&l2Block.ForkID,
+		&blockHashStr,
+		&stateRootStr,
 	); err != nil {
 		return &l2Block, err
 	}
 	l2Block.GlobalExitRoot = common.HexToHash(gerStr)
 	l2Block.Coinbase = common.HexToAddress(coinbaseStr)
 	l2Block.Timestamp = timestamp.Unix()
+	l2Block.BlockHash = common.HexToHash(blockHashStr)
+	l2Block.StateRoot = common.HexToHash(stateRootStr)
+
 	return &l2Block, nil
 }
 
 func (db *StateDB) GetL2Transactions(ctx context.Context, minL2Block, maxL2Block uint64) ([]*L2Transaction, error) {
-	const l2TxSQL = `SELECT t.effective_percentage, LENGTH(t.encoded), t.encoded, b.batch_num
-					 FROM state.transaction t, state.batch b, state.l2block l2b 
-					 WHERE l2_block_num BETWEEN $1 AND $2 AND t.l2_block_num = l2b.block_num AND l2b.batch_num = b.batch_num
+	const l2TxSQL = `SELECT t.effective_percentage, LENGTH(t.encoded), t.encoded
+					 FROM state.transaction t
+					 WHERE l2_block_num BETWEEN $1 AND $2
 					 ORDER BY t.l2_block_num ASC`
 
 	rows, err := db.Query(ctx, l2TxSQL, minL2Block, maxL2Block)
@@ -119,7 +127,6 @@ func scanL2Transaction(row pgx.Row) (*L2Transaction, error) {
 		&l2Transaction.EffectiveGasPricePercentage,
 		&l2Transaction.EncodedLength,
 		&l2Transaction.Encoded,
-		&l2Transaction.BatchNumber,
 	); err != nil {
 		return &l2Transaction, err
 	}

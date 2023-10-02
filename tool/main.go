@@ -79,15 +79,20 @@ func start(cliCtx *cli.Context) error {
 
 	// Set entities definition
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		db.EntryTypeL2Block: {
-			Name:       "L2Block",
+		db.EntryTypeL2BlockStart: {
+			Name:       "L2BlockStart",
 			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2Block{}),
+			Definition: reflect.TypeOf(db.L2BlockStart{}),
 		},
 		db.EntryTypeL2Tx: {
 			Name:       "L2Transaction",
 			StreamType: db.StreamTypeSequencer,
 			Definition: reflect.TypeOf(db.L2Transaction{}),
+		},
+		db.EntryTypeL2BlockEnd: {
+			Name:       "L2BlockEnd",
+			StreamType: db.StreamTypeSequencer,
+			Definition: reflect.TypeOf(db.L2BlockEnd{}),
 		},
 	}
 
@@ -123,7 +128,16 @@ func start(cliCtx *cli.Context) error {
 		log.Fatal(err)
 	}
 
-	_, err = streamServer.AddStreamEntry(1, l2blocks[0].Encode())
+	genesisBlock := db.L2BlockStart{
+		BatchNumber:    l2blocks[0].BatchNumber,
+		L2BlockNumber:  l2blocks[0].L2BlockNumber,
+		Timestamp:      l2blocks[0].Timestamp,
+		GlobalExitRoot: l2blocks[0].GlobalExitRoot,
+		Coinbase:       l2blocks[0].Coinbase,
+		ForkID:         l2blocks[0].ForkID,
+	}
+
+	_, err = streamServer.AddStreamEntry(1, genesisBlock.Encode())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -157,19 +171,35 @@ func start(cliCtx *cli.Context) error {
 		}
 
 		for x, l2block := range l2blocks {
-			_, err = streamServer.AddStreamEntry(1, l2block.Encode())
+			blockStart := db.L2BlockStart{
+				BatchNumber:    l2block.BatchNumber,
+				L2BlockNumber:  l2block.L2BlockNumber,
+				Timestamp:      l2block.Timestamp,
+				GlobalExitRoot: l2block.GlobalExitRoot,
+				Coinbase:       l2block.Coinbase,
+				ForkID:         l2block.ForkID,
+			}
+
+			_, err = streamServer.AddStreamEntry(db.EntryTypeL2BlockStart, blockStart.Encode())
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			if l2Transactions[x].BatchNumber == l2block.BatchNumber {
-				entry, err = streamServer.AddStreamEntry(2, l2Transactions[x].Encode())
-				if err != nil {
-					log.Fatal(err)
-				}
-			} else {
-				log.Fatalf("Mismatch between transaction and l2block batch numbers: %d != %d", l2Transactions[x].BatchNumber, l2block.BatchNumber)
+			entry, err = streamServer.AddStreamEntry(db.EntryTypeL2Tx, l2Transactions[x].Encode())
+			if err != nil {
+				log.Fatal(err)
 			}
+
+			blockEnd := db.L2BlockEnd{
+				BlockHash: l2block.BlockHash,
+				StateRoot: l2block.StateRoot,
+			}
+
+			_, err = streamServer.AddStreamEntry(db.EntryTypeL2BlockEnd, blockEnd.Encode())
+			if err != nil {
+				log.Fatal(err)
+			}
+
 		}
 		err = streamServer.CommitAtomicOp()
 		if err != nil {

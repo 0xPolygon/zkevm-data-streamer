@@ -11,13 +11,15 @@ import (
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/tool/db"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/urfave/cli/v2"
 )
 
 const (
 	// Entry types (events)
-	EtStartL2Block datastreamer.EntryType = 1
-	EtExecuteL2Tx  datastreamer.EntryType = 2
+	EtL2BlockStart datastreamer.EntryType = 1
+	EtL2Tx         datastreamer.EntryType = 2
+	EtL2BlockEnd   datastreamer.EntryType = 3
 
 	StSequencer = 1
 )
@@ -65,15 +67,20 @@ func runServer(*cli.Context) error {
 
 	// Set data entries definition
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		EtStartL2Block: {
-			Name:       "L2Block",
+		EtL2BlockStart: {
+			Name:       "L2BlockStart",
 			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2Block{}),
+			Definition: reflect.TypeOf(db.L2BlockStart{}),
 		},
-		EtExecuteL2Tx: {
+		EtL2Tx: {
 			Name:       "L2Transaction",
 			StreamType: db.StreamTypeSequencer,
 			Definition: reflect.TypeOf(db.L2Transaction{}),
+		},
+		EtL2BlockEnd: {
+			Name:       "L2BlockEnd",
+			StreamType: db.StreamTypeSequencer,
+			Definition: reflect.TypeOf(db.L2BlockEnd{}),
 		},
 	}
 	s.SetEntriesDef(entriesDefinition)
@@ -89,23 +96,29 @@ func runServer(*cli.Context) error {
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
-	l2block := db.L2Block{
+	l2blockStart := db.L2BlockStart{
 		BatchNumber:    101,
 		L2BlockNumber:  1337,
 		Timestamp:      time.Now().Unix(),
 		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17},
 		Coinbase:       [20]byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24},
+		ForkID:         5,
 	}
-	dataBlock := l2block.Encode()
+	dataBlockStart := l2blockStart.Encode()
 
 	l2tx := db.L2Transaction{
-		BatchNumber:                 101,
 		EffectiveGasPricePercentage: 128,
 		IsValid:                     1,
 		EncodedLength:               5,
 		Encoded:                     []byte{1, 2, 3, 4, 5},
 	}
 	dataTx := l2tx.Encode()
+
+	l2BlockEnd := db.L2BlockEnd{
+		BlockHash: common.Hash{},
+		StateRoot: common.Hash{},
+	}
+	dataBlockEnd := l2BlockEnd.Encode()
 
 	end := make(chan uint8)
 
@@ -124,23 +137,29 @@ func runServer(*cli.Context) error {
 			}
 
 			// Add stream entries:
-			// Block
-			entryBlock, err := s.AddStreamEntry(1, dataBlock)
+			// Block Start
+			entryBlockStart, err := s.AddStreamEntry(EtL2BlockStart, dataBlockStart)
 			if err != nil {
-				log.Errorf(">> App error! AddStreamEntry type 1: %v", err)
+				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockStart, err)
 				return
 			}
 			// Tx
 			numTx := 1 //rand.Intn(20) + 1
 			for i := 1; i <= numTx; i++ {
-				_, err = s.AddStreamEntry(2, dataTx)
+				_, err = s.AddStreamEntry(EtL2Tx, dataTx)
 				if err != nil {
-					log.Errorf(">> App error! AddStreamEntry type 2: %v", err)
+					log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2Tx, err)
 					return
 				}
 			}
+			// Block Start
+			_, err = s.AddStreamEntry(EtL2BlockEnd, dataBlockEnd)
+			if err != nil {
+				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockEnd, err)
+				return
+			}
 
-			if entryBlock%10 != 0 || latestRollback == entryBlock {
+			if entryBlockStart%10 != 0 || latestRollback == entryBlockStart {
 				// Commit atomic operation
 				err = s.CommitAtomicOp()
 				if err != nil {
@@ -153,7 +172,7 @@ func runServer(*cli.Context) error {
 				if err != nil {
 					log.Error(">> App error! RollbackAtomicOp")
 				}
-				latestRollback = entryBlock
+				latestRollback = entryBlockStart
 			}
 
 			// time.Sleep(5000 * time.Millisecond)
@@ -186,15 +205,20 @@ func runClient(*cli.Context) error {
 
 	// Set data entries definition
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		EtStartL2Block: {
-			Name:       "L2Block",
+		EtL2BlockStart: {
+			Name:       "L2BlockStart",
 			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2Block{}),
+			Definition: reflect.TypeOf(db.L2BlockStart{}),
 		},
-		EtExecuteL2Tx: {
+		EtL2Tx: {
 			Name:       "L2Transaction",
 			StreamType: db.StreamTypeSequencer,
 			Definition: reflect.TypeOf(db.L2Transaction{}),
+		},
+		EtL2BlockEnd: {
+			Name:       "L2BlockEnd",
+			StreamType: db.StreamTypeSequencer,
+			Definition: reflect.TypeOf(db.L2BlockEnd{}),
 		},
 	}
 	c.SetEntriesDef(entriesDefinition)
