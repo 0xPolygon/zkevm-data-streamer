@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	// Stream Server Config
-	// FlagCfg is the flag for cfg.
+	// FlagCfg is the flag for cfg
 	FlagCfg = "cfg"
 )
 
@@ -41,6 +40,7 @@ func Default() (*Config, error) {
 	return &cfg, nil
 }
 
+// Load parses the configuration values from the config file and environment variables
 func Load(ctx *cli.Context) (*Config, error) {
 	cfg, err := Default()
 	if err != nil {

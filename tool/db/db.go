@@ -16,7 +16,7 @@ type StateDB struct {
 	*pgxpool.Pool
 }
 
-// NewPostgresStorage creates a new StateDB
+// NewStateDB creates a new StateDB
 func NewStateDB(db *pgxpool.Pool) *StateDB {
 	return &StateDB{
 		db,
@@ -41,6 +41,7 @@ func NewSQLDB(cfg Config) (*pgxpool.Pool, error) {
 	return conn, nil
 }
 
+// GetL2Blocks returns the L2 blocks
 func (db *StateDB) GetL2Blocks(ctx context.Context, limit, offset uint) ([]*L2Block, error) {
 	const l2BlockSQL = `SELECT l2b.batch_num, l2b.block_num, l2b.created_at, b.global_exit_root, l2b.header->>'miner' AS coinbase, f.fork_id, l2b.block_hash, l2b.state_root
 						FROM state.l2block l2b, state.batch b, state.fork_id f
@@ -96,6 +97,7 @@ func scanL2Block(row pgx.Row) (*L2Block, error) {
 	return &l2Block, nil
 }
 
+// GetL2Transactions returns the L2 transactions
 func (db *StateDB) GetL2Transactions(ctx context.Context, minL2Block, maxL2Block uint64) ([]*L2Transaction, error) {
 	const l2TxSQL = `SELECT t.effective_percentage, LENGTH(t.encoded), t.encoded
 					 FROM state.transaction t

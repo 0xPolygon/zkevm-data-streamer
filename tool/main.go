@@ -199,7 +199,6 @@ func start(cliCtx *cli.Context) error {
 			if err != nil {
 				log.Fatal(err)
 			}
-
 		}
 		err = streamServer.CommitAtomicOp()
 		if err != nil {
