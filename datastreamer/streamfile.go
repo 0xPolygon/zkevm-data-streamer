@@ -45,10 +45,10 @@ type HeaderEntry struct {
 
 type FileEntry struct {
 	packetType uint8     // 2:Data entry, 0:Padding, (1:Header)
-	length     uint32    // Length of the entry
-	entryType  EntryType // e.g. 1:L2 block, 2:L2 tx,...
-	entryNum   uint64    // Entry number (sequential starting with 0)
-	data       []byte
+	Length     uint32    // Length of the entry
+	EntryType  EntryType // e.g. 1:L2 block, 2:L2 tx,...
+	EntryNum   uint64    // Entry number (sequential starting with 0)
+	Data       []byte
 }
 
 type StreamFile struct {
@@ -66,7 +66,7 @@ type StreamFile struct {
 type iteratorFile struct {
 	fromEntry uint64
 	file      *os.File
-	entry     FileEntry
+	Entry     FileEntry
 }
 
 func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
@@ -399,10 +399,10 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 func encodeFileEntryToBinary(e FileEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
-	be = binary.BigEndian.AppendUint32(be, e.length)
-	be = binary.BigEndian.AppendUint32(be, uint32(e.entryType))
-	be = binary.BigEndian.AppendUint64(be, e.entryNum)
-	be = append(be, e.data...)
+	be = binary.BigEndian.AppendUint32(be, e.Length)
+	be = binary.BigEndian.AppendUint32(be, uint32(e.EntryType))
+	be = binary.BigEndian.AppendUint64(be, e.EntryNum)
+	be = append(be, e.Data...)
 	return be
 }
 
@@ -592,12 +592,12 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 	}
 
 	d.packetType = b[0]
-	d.length = binary.BigEndian.Uint32(b[1:5])
-	d.entryType = EntryType(binary.BigEndian.Uint32(b[5:9]))
-	d.entryNum = binary.BigEndian.Uint64(b[9:17])
-	d.data = b[17:]
+	d.Length = binary.BigEndian.Uint32(b[1:5])
+	d.EntryType = EntryType(binary.BigEndian.Uint32(b[5:9]))
+	d.EntryNum = binary.BigEndian.Uint64(b[9:17])
+	d.Data = b[17:]
 
-	if uint32(len(d.data)) != d.length-FixedSizeFileEntry {
+	if uint32(len(d.Data)) != d.Length-FixedSizeFileEntry {
 		log.Error("Error decoding binary data entry")
 		return d, errors.New("error decoding binary data entry")
 	}
@@ -618,8 +618,8 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 	iterator := iteratorFile{
 		fromEntry: entryNum,
 		file:      file,
-		entry: FileEntry{
-			entryNum: 0,
+		Entry: FileEntry{
+			EntryNum: 0,
 		},
 	}
 
@@ -632,7 +632,7 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 // Next data entry in the stream file for the iterator
 func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Check end of entries condition
-	if iterator.entry.entryNum == f.writtenHead.TotalEntries {
+	if iterator.Entry.EntryNum == f.writtenHead.TotalEntries {
 		return true, nil
 	}
 
@@ -711,7 +711,7 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	}
 
 	// Convert to data entry struct
-	iterator.entry, err = DecodeBinaryToFileEntry(buffer)
+	iterator.Entry, err = DecodeBinaryToFileEntry(buffer)
 	if err != nil {
 		log.Errorf("Error decoding entry for iterator: %v", err)
 		return true, err
@@ -880,15 +880,15 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 		}
 
 		// Not found
-		if end || iterator.entry.entryNum > iterator.fromEntry {
+		if end || iterator.Entry.EntryNum > iterator.fromEntry {
 			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
 			return errors.New("entry not found")
 		}
 
 		// Found!
-		if iterator.entry.entryNum == iterator.fromEntry {
+		if iterator.Entry.EntryNum == iterator.fromEntry {
 			// Seek backward to the end of fixed data
-			backward := iterator.entry.length - FixedSizeFileEntry
+			backward := iterator.Entry.Length - FixedSizeFileEntry
 			_, err = iterator.file.Seek(-int64(backward), io.SeekCurrent)
 			if err != nil {
 				log.Errorf("Error in file seeking: %v", err)
