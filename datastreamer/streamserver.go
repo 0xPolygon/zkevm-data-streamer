@@ -257,22 +257,22 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtData,
-		length:     1 + 4 + 4 + 8 + uint32(len(data)),
-		entryType:  EntryType(etype),
-		entryNum:   s.nextEntry,
-		data:       data,
+		Length:     1 + 4 + 4 + 8 + uint32(len(data)),
+		EntryType:  EntryType(etype),
+		EntryNum:   s.nextEntry,
+		Data:       data,
 	}
 
 	// Log data entry fields
 	if log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
 		entity := s.entriesDef[etype]
 		if entity.Name != "" {
-			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.entryNum, e.packetType, e.length, e.entryType, entity.toString(data))
+			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.EntryNum, e.packetType, e.Length, e.EntryType, entity.toString(data))
 		} else {
-			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.entryNum, e.packetType, e.length, e.entryType)
+			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.EntryNum, e.packetType, e.Length, e.EntryType)
 		}
 	} else {
-		log.Infof("Data entry: %d | %d | %d | %d | %d", e.entryNum, e.packetType, e.length, e.entryType, len(data))
+		log.Infof("Data entry: %d | %d | %d | %d | %d", e.EntryNum, e.packetType, e.Length, e.EntryType, len(data))
 	}
 
 	// Update header (in memory) and write data entry into the file
@@ -287,7 +287,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	// Increase sequential entry number
 	s.nextEntry++
 
-	return e.entryNum, nil
+	return e.EntryNum, nil
 }
 
 func (s *StreamServer) CommitAtomicOp() error {
@@ -351,6 +351,31 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	return nil
 }
 
+func (s *StreamServer) GetHeader() HeaderEntry {
+	// Get current file header
+	header := s.sf.getHeaderEntry()
+	return header
+}
+
+func (s *StreamServer) GetEntry(entryNum uint64) (FileEntry, error) {
+	// Initialize file stream iterator
+	iterator, err := s.sf.iteratorFrom(entryNum)
+	if err != nil {
+		return FileEntry{}, err
+	}
+
+	// Get requested entry data
+	_, err = s.sf.iteratorNext(iterator)
+	if err != nil {
+		return FileEntry{}, err
+	}
+
+	// Close iterator
+	s.sf.iteratorEnd(iterator)
+
+	return iterator.Entry, nil
+}
+
 func (s *StreamServer) clearAtomicOp() {
 	// No atomic operation in progress and empty entries slice
 	s.atomicOp.entries = s.atomicOp.entries[:0]
@@ -374,7 +399,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 			// Send entries
 			for _, entry := range broadcastOp.entries {
-				log.Debugf("Sending data entry %d (type %d) to %s", entry.entryNum, entry.entryType, id)
+				log.Debugf("Sending data entry %d (type %d) to %s", entry.EntryNum, entry.EntryType, id)
 				binaryEntry := encodeFileEntryToBinary(entry)
 
 				// Send the file data entry
@@ -547,19 +572,19 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 		}
 
 		// Send the file data entry
-		binaryEntry := encodeFileEntryToBinary(iterator.entry)
-		log.Infof("Sending data entry %d (type %d) to %s", iterator.entry.entryNum, iterator.entry.entryType, clientId)
+		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
+		log.Infof("Sending data entry %d (type %d) to %s", iterator.Entry.EntryNum, iterator.Entry.EntryType, clientId)
 		if conn != nil {
 			_, err = conn.Write(binaryEntry)
 		} else {
 			err = errors.New("error nil connection")
 		}
 		if err != nil {
-			log.Warnf("Error sending entry %d to %s: %v", iterator.entry.entryNum, clientId, err)
+			log.Warnf("Error sending entry %d to %s: %v", iterator.Entry.EntryNum, clientId, err)
 			return err
 		}
 	}
-	log.Infof("Synced %s until %d!", clientId, iterator.entry.entryNum)
+	log.Infof("Synced %s until %d!", clientId, iterator.Entry.EntryNum)
 
 	// Close iterator
 	s.sf.iteratorEnd(iterator)

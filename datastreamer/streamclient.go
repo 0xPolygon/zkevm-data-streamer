@@ -334,7 +334,7 @@ func (c *StreamClient) getStreaming() {
 		// Process the data entry
 		err := c.processEntry(e)
 		if err != nil {
-			log.Errorf("%s Error processing entry %d", c.id, e.entryNum)
+			log.Errorf("%s Error processing entry %d", c.id, e.EntryNum)
 		}
 	}
 }
@@ -343,14 +343,14 @@ func (c *StreamClient) getStreaming() {
 func (c *StreamClient) processEntry(e FileEntry) error {
 	// Log data entry fields
 	if log.GetLevel() == zapcore.DebugLevel {
-		entity := c.entriesDef[e.entryType]
+		entity := c.entriesDef[e.EntryType]
 		if entity.Name != "" {
-			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, e.entryNum, e.packetType, e.length, e.entryType, entity.toString(e.data))
+			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, e.EntryNum, e.packetType, e.Length, e.EntryType, entity.toString(e.Data))
 		} else {
-			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, e.entryNum, e.packetType, e.length, e.entryType)
+			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, e.EntryNum, e.packetType, e.Length, e.EntryType)
 		}
 	} else {
-		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, e.entryNum, e.packetType, e.length, e.entryType, len(e.data))
+		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, e.EntryNum, e.packetType, e.Length, e.EntryType, len(e.Data))
 	}
 
 	return nil

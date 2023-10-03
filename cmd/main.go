@@ -127,6 +127,18 @@ func runServer(*cli.Context) error {
 
 		rand.Seed(time.Now().UnixNano())
 
+		// Get Header
+		header := s.GetHeader()
+		log.Infof(">> GetHeader test: nextEntryNumber[%d]", header.TotalEntries)
+
+		// Get Entry
+		entry, err := s.GetEntry(95)
+		if err != nil {
+			log.Errorf(">> GetEntry test: error %v", err)
+		} else {
+			log.Infof(">> GetEntry test: num[%d] type[%d] length[%d]", entry.EntryNum, entry.EntryType, entry.Length)
+		}
+
 		// for n := 1; n <= 10000; n++ {
 		for {
 			// Start atomic operation
