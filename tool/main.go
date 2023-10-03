@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"os"
 	"reflect"
 
@@ -111,45 +112,102 @@ func start(cliCtx *cli.Context) error {
 	stateDB := db.NewStateDB(stateSqlDB)
 	log.Info("Connected to the database")
 
+	header := streamServer.GetHeader()
+
+	var currentL2Block uint64
+	var currentTxIndex uint64
+
+	if header.TotalEntries == 0 {
+		// Get Genesis block
+		genesisL2Block, err := stateDB.GetGenesisBlock(cliCtx.Context)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = streamServer.StartAtomicOp()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		genesisBlock := db.L2BlockStart{
+			BatchNumber:    genesisL2Block.BatchNumber,
+			L2BlockNumber:  genesisL2Block.L2BlockNumber,
+			Timestamp:      genesisL2Block.Timestamp,
+			GlobalExitRoot: genesisL2Block.GlobalExitRoot,
+			Coinbase:       genesisL2Block.Coinbase,
+			ForkID:         genesisL2Block.ForkID,
+		}
+
+		log.Infof("Genesis block: %+v", genesisBlock)
+
+		_, err = streamServer.AddStreamEntry(1, genesisBlock.Encode())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		genesisBlockEnd := db.L2BlockEnd{
+			L2BlockNumber: genesisL2Block.L2BlockNumber,
+			BlockHash:     genesisL2Block.BlockHash,
+			StateRoot:     genesisL2Block.StateRoot,
+		}
+
+		_, err = streamServer.AddStreamEntry(db.EntryTypeL2BlockEnd, genesisBlockEnd.Encode())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = streamServer.CommitAtomicOp()
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		latestEntry, err := streamServer.GetEntry(header.TotalEntries - 1)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Infof("Latest entry: %+v", latestEntry)
+
+		switch latestEntry.EntryType {
+		case db.EntryTypeL2BlockStart:
+			log.Info("Latest entry type is L2BlockStart")
+			currentL2Block = binary.LittleEndian.Uint64(latestEntry.Data[8:16])
+		case db.EntryTypeL2Tx:
+			log.Info("Latest entry type is L2Tx")
+
+			for latestEntry.EntryType == db.EntryTypeL2Tx {
+				currentTxIndex++
+				latestEntry, err = streamServer.GetEntry(header.TotalEntries - currentTxIndex)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			if latestEntry.EntryType != db.EntryTypeL2BlockStart {
+				log.Fatal("Latest entry is not a L2BlockStart")
+			}
+			currentL2Block = binary.LittleEndian.Uint64(latestEntry.Data[8:16])
+
+		case db.EntryTypeL2BlockEnd:
+			log.Info("Latest entry type is L2BlockEnd")
+			currentL2Block = binary.LittleEndian.Uint64(latestEntry.Data[0:8])
+		}
+	}
+
+	log.Infof("Current transaction index: %d", currentTxIndex)
+	if currentTxIndex == 0 {
+		currentL2Block++
+	}
+	log.Infof("Current L2 block number: %d", currentL2Block)
+
+	var limit uint64 = 1000
+	var offset uint64 = currentL2Block
+	var entry uint64 = header.TotalEntries
 	var l2blocks []*db.L2Block
 
-	// Get Genesis block
-	l2blocks, err = stateDB.GetL2Blocks(cliCtx.Context, 1, 0)
-	if err != nil {
-		log.Fatal(err)
+	if entry > 0 {
+		entry--
 	}
-
-	if len(l2blocks) == 0 {
-		log.Fatal("No genesis block found")
-	}
-
-	err = streamServer.StartAtomicOp()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	genesisBlock := db.L2BlockStart{
-		BatchNumber:    l2blocks[0].BatchNumber,
-		L2BlockNumber:  l2blocks[0].L2BlockNumber,
-		Timestamp:      l2blocks[0].Timestamp,
-		GlobalExitRoot: l2blocks[0].GlobalExitRoot,
-		Coinbase:       l2blocks[0].Coinbase,
-		ForkID:         l2blocks[0].ForkID,
-	}
-
-	_, err = streamServer.AddStreamEntry(1, genesisBlock.Encode())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = streamServer.CommitAtomicOp()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var limit uint = 1000
-	var offset uint = 1
-	var entry uint64
 
 	for err == nil {
 		log.Infof("Current entry number: %d", entry)
@@ -171,6 +229,11 @@ func start(cliCtx *cli.Context) error {
 		}
 
 		for x, l2block := range l2blocks {
+			if currentTxIndex > 0 {
+				x += int(currentTxIndex)
+				currentTxIndex = 0
+			}
+
 			blockStart := db.L2BlockStart{
 				BatchNumber:    l2block.BatchNumber,
 				L2BlockNumber:  l2block.L2BlockNumber,
@@ -191,8 +254,9 @@ func start(cliCtx *cli.Context) error {
 			}
 
 			blockEnd := db.L2BlockEnd{
-				BlockHash: l2block.BlockHash,
-				StateRoot: l2block.StateRoot,
+				L2BlockNumber: l2block.L2BlockNumber,
+				BlockHash:     l2block.BlockHash,
+				StateRoot:     l2block.StateRoot,
 			}
 
 			_, err = streamServer.AddStreamEntry(db.EntryTypeL2BlockEnd, blockEnd.Encode())

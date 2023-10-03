@@ -41,7 +41,22 @@ func NewSQLDB(cfg Config) (*pgxpool.Pool, error) {
 	return conn, nil
 }
 
-func (db *StateDB) GetL2Blocks(ctx context.Context, limit, offset uint) ([]*L2Block, error) {
+func (db *StateDB) GetGenesisBlock(ctx context.Context) (*L2Block, error) {
+	const genesisL2BlockSQL = `SELECT 0 as batch_num, l2b.block_num, l2b.created_at, '0x0000000000000000000000000000000000000000' as global_exit_root, l2b.header->>'miner' AS coinbase, 1 as fork_id, l2b.block_hash, l2b.state_root
+							FROM state.l2block l2b
+							WHERE l2b.block_num  = 0`
+
+	row := db.QueryRow(ctx, genesisL2BlockSQL)
+
+	l2block, err := scanL2Block(row)
+	if err != nil {
+		return nil, err
+	}
+
+	return l2block, nil
+}
+
+func (db *StateDB) GetL2Blocks(ctx context.Context, limit, offset uint64) ([]*L2Block, error) {
 	const l2BlockSQL = `SELECT l2b.batch_num, l2b.block_num, l2b.created_at, b.global_exit_root, l2b.header->>'miner' AS coinbase, f.fork_id, l2b.block_hash, l2b.state_root
 						FROM state.l2block l2b, state.batch b, state.fork_id f
 						WHERE l2b.batch_num = b.batch_num AND l2b.batch_num between f.from_batch_num AND f.to_batch_num
