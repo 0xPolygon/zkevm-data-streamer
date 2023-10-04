@@ -10,7 +10,6 @@ import (
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
-	"github.com/0xPolygonHermez/zkevm-data-streamer/tool/db"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/urfave/cli/v2"
 )
@@ -68,18 +67,18 @@ func runServer(*cli.Context) error {
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
 		EtL2BlockStart: {
 			Name:       "L2BlockStart",
-			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2BlockStart{}),
+			StreamType: datastreamer.StreamTypeSequencer,
+			Definition: reflect.TypeOf(datastreamer.L2BlockStart{}),
 		},
 		EtL2Tx: {
 			Name:       "L2Transaction",
-			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2Transaction{}),
+			StreamType: datastreamer.StreamTypeSequencer,
+			Definition: reflect.TypeOf(datastreamer.L2Transaction{}),
 		},
 		EtL2BlockEnd: {
 			Name:       "L2BlockEnd",
-			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2BlockEnd{}),
+			StreamType: datastreamer.StreamTypeSequencer,
+			Definition: reflect.TypeOf(datastreamer.L2BlockEnd{}),
 		},
 	}
 	s.SetEntriesDef(entriesDefinition)
@@ -95,7 +94,7 @@ func runServer(*cli.Context) error {
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
-	l2blockStart := db.L2BlockStart{
+	l2blockStart := datastreamer.L2BlockStart{
 		BatchNumber:    101,               // nolint:gomnd
 		L2BlockNumber:  1337,              // nolint:gomnd
 		Timestamp:      time.Now().Unix(), // nolint:gomnd
@@ -105,7 +104,7 @@ func runServer(*cli.Context) error {
 	}
 	dataBlockStart := l2blockStart.Encode()
 
-	l2tx := db.L2Transaction{
+	l2tx := datastreamer.L2Transaction{
 		EffectiveGasPricePercentage: 128,                   // nolint:gomnd
 		IsValid:                     1,                     // nolint:gomnd
 		EncodedLength:               5,                     // nolint:gomnd
@@ -113,7 +112,7 @@ func runServer(*cli.Context) error {
 	}
 	dataTx := l2tx.Encode()
 
-	l2BlockEnd := db.L2BlockEnd{
+	l2BlockEnd := datastreamer.L2BlockEnd{
 		BlockHash: common.Hash{},
 		StateRoot: common.Hash{},
 	}
@@ -220,18 +219,18 @@ func runClient(*cli.Context) error {
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
 		EtL2BlockStart: {
 			Name:       "L2BlockStart",
-			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2BlockStart{}),
+			StreamType: datastreamer.StreamTypeSequencer,
+			Definition: reflect.TypeOf(datastreamer.L2BlockStart{}),
 		},
 		EtL2Tx: {
 			Name:       "L2Transaction",
-			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2Transaction{}),
+			StreamType: datastreamer.StreamTypeSequencer,
+			Definition: reflect.TypeOf(datastreamer.L2Transaction{}),
 		},
 		EtL2BlockEnd: {
 			Name:       "L2BlockEnd",
-			StreamType: db.StreamTypeSequencer,
-			Definition: reflect.TypeOf(db.L2BlockEnd{}),
+			StreamType: datastreamer.StreamTypeSequencer,
+			Definition: reflect.TypeOf(datastreamer.L2BlockEnd{}),
 		},
 	}
 	c.SetEntriesDef(entriesDefinition)

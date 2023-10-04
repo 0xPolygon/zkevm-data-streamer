@@ -1,21 +1,20 @@
-package db
+package datastreamer
 
 import (
 	"encoding/binary"
 
-	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
 	// StreamTypeSequencer represents a Sequencer stream
-	StreamTypeSequencer datastreamer.StreamType = 1
+	StreamTypeSequencer StreamType = 1
 	// EntryTypeL2BlockStart represents a L2 block start
-	EntryTypeL2BlockStart datastreamer.EntryType = 1
+	EntryTypeL2BlockStart EntryType = 1
 	// EntryTypeL2Tx represents a L2 transaction
-	EntryTypeL2Tx datastreamer.EntryType = 2
+	EntryTypeL2Tx EntryType = 2
 	// EntryTypeL2BlockEnd represents a L2 block end
-	EntryTypeL2BlockEnd datastreamer.EntryType = 3
+	EntryTypeL2BlockEnd EntryType = 3
 )
 
 // L2Block is a full l2 block

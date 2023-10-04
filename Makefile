@@ -6,7 +6,6 @@ check-go:
 
 # Targets that require the checks
 run-server: check-go
-run-tool: check-go
 
 .PHONY: install-linter
 install-linter: ## Installs the linter
@@ -23,10 +22,6 @@ run-server: ## Runs the data streamer server
 .PHONY: run-client
 run-client: ## Runs the data streamer client
 	go run cmd/main.go client
-
-.PHONY: run-tool
-run-tool: ## Runs the tool to populate the binary file
-	go run tool/main.go run -cfg tool/config/tool.config.toml
 
 .PHONY: test
 test:
