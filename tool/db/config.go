@@ -1,5 +1,6 @@
 package db
 
+// Config is the configuration for the database
 type Config struct {
 	// Database name
 	Name string `mapstructure:"Name"`

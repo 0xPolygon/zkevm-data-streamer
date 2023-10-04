@@ -16,7 +16,7 @@ var (
 )
 
 const (
-	// File config
+	fileMode       = 0666        // Open file mode
 	magicNumSize   = 16          // Magic numbers size
 	headerSize     = 29          // Header data size
 	pageHeaderSize = 4096        // 4K size header page
@@ -24,17 +24,16 @@ const (
 	initPages      = 100         // Initial number of data pages
 	nextPages      = 10          // Number of data pages to add when file is full
 
-	// Packet types
-	PtPadding = 0
-	PtHeader  = 1    // Just for the header page
-	PtData    = 2    // Data entry
-	PtResult  = 0xff // Not stored/present in file (just for client command result)
+	PtPadding = 0    // PtPadding is packet type for pad
+	PtHeader  = 1    // PtHeader is packet type just for the header page
+	PtData    = 2    // PtData is packet type for data entry
+	PtResult  = 0xff // PtResult is packet type not stored/present in file (just for client command result)
 
-	// Sizes
-	FixedSizeFileEntry   = 17 // 1+4+4+8
-	FixedSizeResultEntry = 9  // 1+4+4
+	FixedSizeFileEntry   = 17 // FixedSizeFileEntry is the fixed size in bytes for a data file entry (1+4+4+8)
+	FixedSizeResultEntry = 9  // FixedSizeResultEntry is the fixed size in bytes for a result entry (1+4+4)
 )
 
+// HeaderEntry type for a header entry
 type HeaderEntry struct {
 	packetType   uint8      // 1:Header
 	headLength   uint32     // 29
@@ -43,6 +42,7 @@ type HeaderEntry struct {
 	TotalEntries uint64     // Total number of data entries (entry type 2)
 }
 
+// FileEntry type for a data file entry
 type FileEntry struct {
 	packetType uint8     // 2:Data entry, 0:Padding, (1:Header)
 	Length     uint32    // Length of the entry
@@ -51,6 +51,7 @@ type FileEntry struct {
 	Data       []byte
 }
 
+// StreamFile type to manage a binary stream file
 type StreamFile struct {
 	fileName   string
 	pageSize   uint32 // Data page size in bytes
@@ -69,6 +70,7 @@ type iteratorFile struct {
 	Entry     FileEntry
 }
 
+// PrepareStreamFile creates stream file struct and opens or creates the stream binary data file
 func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
@@ -99,6 +101,7 @@ func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
 	return sf, err
 }
 
+// openCreateFile opens or creates the stream file and performs multiple checks
 func (f *StreamFile) openCreateFile() error {
 	// Check if file exists (otherwise create it)
 	_, err := os.Stat(f.fileName)
@@ -117,11 +120,10 @@ func (f *StreamFile) openCreateFile() error {
 			}
 			err = f.initializeFile()
 		}
-
 	} else if err == nil {
 		// File already exists
 		log.Infof("Using existing file for datastream: %s", f.fileName)
-		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, 0666)
+		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, fileMode)
 		if err != nil {
 			log.Errorf("Error opening datastream file %s: %v", f.fileName, err)
 			return err
@@ -168,10 +170,11 @@ func (f *StreamFile) openCreateFile() error {
 	return nil
 }
 
+// openFileForHeader opens stream file to perform header operations
 func (f *StreamFile) openFileForHeader() error {
 	// Get another file descriptor to use just for read/write the header
 	var err error
-	f.fileHeader, err = os.OpenFile(f.fileName, os.O_RDWR, 0666)
+	f.fileHeader, err = os.OpenFile(f.fileName, os.O_RDWR, fileMode)
 	if err != nil {
 		log.Errorf("Error opening file for read/write header: %v", err)
 		return err
@@ -179,6 +182,7 @@ func (f *StreamFile) openFileForHeader() error {
 	return nil
 }
 
+// initializeFile creates and initializes the stream file structure
 func (f *StreamFile) initializeFile() error {
 	// Create the header page
 	err := f.createHeaderPage()
@@ -198,6 +202,7 @@ func (f *StreamFile) initializeFile() error {
 	return err
 }
 
+// createHeaderPage creates and initilize the header page of the stream file
 func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
 	err := f.createPage(pageHeaderSize)
@@ -221,6 +226,7 @@ func (f *StreamFile) createHeaderPage() error {
 	return err
 }
 
+// writeMagicNumbers writes the magic bytes at the beginning of the header page
 func (f *StreamFile) writeMagicNumbers() error {
 	// Position at the start of the file
 	_, err := f.file.Seek(0, io.SeekStart)
@@ -239,7 +245,7 @@ func (f *StreamFile) writeMagicNumbers() error {
 	return nil
 }
 
-// Create/add a new page on the stream file
+// createPage creates (adds) a new page on the stream file
 func (f *StreamFile) createPage(size uint32) error {
 	page := make([]byte, size)
 
@@ -270,6 +276,7 @@ func (f *StreamFile) createPage(size uint32) error {
 	return nil
 }
 
+// extendFile extends the stream file by adding new data pages
 func (f *StreamFile) extendFile() error {
 	// Add data pages
 	var err error = nil
@@ -283,7 +290,7 @@ func (f *StreamFile) extendFile() error {
 	return err
 }
 
-// Read header from file to restore the header struct
+// readHeaderEntry reads header from file to restore the header struct
 func (f *StreamFile) readHeaderEntry() error {
 	// Position at the beginning of the file
 	_, err := f.fileHeader.Seek(magicNumSize, io.SeekStart)
@@ -316,10 +323,12 @@ func (f *StreamFile) readHeaderEntry() error {
 	return nil
 }
 
+// getHeaderEntry returns current committed header
 func (f *StreamFile) getHeaderEntry() HeaderEntry {
 	return f.writtenHead
 }
 
+// printHeaderEntry prints file header information
 func printHeaderEntry(e HeaderEntry) {
 	log.Info("--- HEADER ENTRY -------------------------")
 	log.Infof("packetType: [%d]", e.packetType)
@@ -339,7 +348,7 @@ func printHeaderEntry(e HeaderEntry) {
 	log.Infof("usedDataPages=[%d]", usedPages)
 }
 
-// Write the memory header struct into the file header
+// writeHeaderEntry writes the memory header struct into the file header
 func (f *StreamFile) writeHeaderEntry() error {
 	// Position at the beginning of the file
 	_, err := f.fileHeader.Seek(magicNumSize, io.SeekStart)
@@ -367,7 +376,7 @@ func (f *StreamFile) writeHeaderEntry() error {
 	return nil
 }
 
-// Encode/convert from a header entry type to binary bytes slice
+// encodeHeaderEntryToBinary encodes from a header entry type to binary bytes slice
 func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
@@ -378,7 +387,7 @@ func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	return be
 }
 
-// Decode/convert from binary bytes slice to a header entry type
+// decodeBinaryToHeaderEntry decodes from binary bytes slice to a header entry type
 func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	e := HeaderEntry{}
 
@@ -396,6 +405,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	return e, nil
 }
 
+// encodeFileEntryToBinary encodes from a data file entry type to binary bytes
 func encodeFileEntryToBinary(e FileEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
@@ -406,6 +416,7 @@ func encodeFileEntryToBinary(e FileEntry) []byte {
 	return be
 }
 
+// checkFileConsistency performs some file consistency checks
 func (f *StreamFile) checkFileConsistency() error {
 	// Get file info
 	info, err := os.Stat(f.fileName)
@@ -431,6 +442,7 @@ func (f *StreamFile) checkFileConsistency() error {
 	return nil
 }
 
+// checkMagicNumbers performs magic bytes check
 func (f *StreamFile) checkMagicNumbers() error {
 	// Position at the beginning of the file
 	_, err := f.file.Seek(0, io.SeekStart)
@@ -456,6 +468,7 @@ func (f *StreamFile) checkMagicNumbers() error {
 	return nil
 }
 
+// checkHeaderConsistency performs some header struct checks
 func (f *StreamFile) checkHeaderConsistency() error {
 	var err error = nil
 
@@ -473,7 +486,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 	return err
 }
 
-// Write new data entry to the data stream file
+// AddFileEntry writes new data entry to the data stream file
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
@@ -537,7 +550,7 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	return nil
 }
 
-// Fill remaining free space on the current data page with pad
+// fillPagePadEntries fills remaining free space on the current data page with pad
 func (f *StreamFile) fillPagePadEntries() error {
 	// Set the file position to write
 	_, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
@@ -572,6 +585,7 @@ func (f *StreamFile) fillPagePadEntries() error {
 	return nil
 }
 
+// printStreamFile prints file information
 func printStreamFile(f StreamFile) {
 	log.Info("--- STREAM FILE --------------------------")
 	log.Infof("fileName: [%s]", f.fileName)
@@ -582,7 +596,7 @@ func printStreamFile(f StreamFile) {
 	printHeaderEntry(f.header)
 }
 
-// Decode/convert from binary bytes slice to file entry type
+// DecodeBinaryToFileEntry decodes from binary bytes slice to file entry type
 func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 	d := FileEntry{}
 
@@ -605,7 +619,7 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 	return d, nil
 }
 
-// Initialize iterator to locate a data entry number in the stream file
+// iteratorFrom initializes iterator to locate a data entry number in the stream file
 func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 	// Open file for read only
 	file, err := os.OpenFile(f.fileName, os.O_RDONLY, os.ModePerm)
@@ -629,7 +643,7 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 	return &iterator, err
 }
 
-// Next data entry in the stream file for the iterator
+// iteratorNext gets the next data entry in the stream file for the iterator
 func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Check end of entries condition
 	if iterator.Entry.EntryNum == f.writtenHead.TotalEntries {
@@ -720,12 +734,12 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	return false, nil
 }
 
-// Finalize file iterator
+// iteratorEnd finalizes the file iterator
 func (f *StreamFile) iteratorEnd(iterator *iteratorFile) {
 	iterator.file.Close()
 }
 
-// Uses a file iterator to locate a data entry number using custom binary search
+// seekEntry uses a file iterator to locate a data entry number using a custom binary search
 func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 	// Start and end data pages
 	avg := 0
@@ -737,7 +751,7 @@ func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 
 	// Custom binary search
 	for beg <= end {
-		avg = beg + (end-beg)/2
+		avg = beg + (end-beg)/2 // nolint:gomnd
 
 		// Seek for the start of avg data page
 		newPos := (avg * pageDataSize) + pageHeaderSize
@@ -809,7 +823,7 @@ func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 	return nil
 }
 
-// Get the first data entry number on next page using an iterator
+// getFirstEntryOnNextPage returns the first data entry number on next page using an iterator
 func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, error) {
 	// Current file position
 	curpos, err := iterator.file.Seek(0, io.SeekCurrent)
@@ -864,7 +878,7 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	return entryNum, nil
 }
 
-// Locate the entry number we are looking for using the sequential iterator
+// locateEntry locates the entry number we are looking for using the sequential iterator
 func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 	// Seek backward to the start of data entry
 	_, err := iterator.file.Seek(-FixedSizeFileEntry, io.SeekCurrent)

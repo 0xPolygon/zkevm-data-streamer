@@ -16,12 +16,11 @@ import (
 )
 
 const (
-	// Entry types (events)
-	EtL2BlockStart datastreamer.EntryType = 1
-	EtL2Tx         datastreamer.EntryType = 2
-	EtL2BlockEnd   datastreamer.EntryType = 3
+	EtL2BlockStart datastreamer.EntryType = 1 // EtL2BlockStart entry type
+	EtL2Tx         datastreamer.EntryType = 2 // EtL2Tx entry type
+	EtL2BlockEnd   datastreamer.EntryType = 3 // EtL2BlockEnd entry type
 
-	StSequencer = 1
+	StSequencer = 1 // StSequencer sequencer stream type
 )
 
 func main() {
@@ -60,7 +59,7 @@ func runServer(*cli.Context) error {
 	log.Info(">> App begin")
 
 	// Create stream server
-	s, err := datastreamer.New(6900, StSequencer, "streamfile.bin", nil)
+	s, err := datastreamer.New(6900, StSequencer, "streamfile.bin", nil) // nolint:gomnd
 	if err != nil {
 		os.Exit(1)
 	}
@@ -97,20 +96,20 @@ func runServer(*cli.Context) error {
 	// ------------------------------------------------------------
 	// Fake Sequencer data
 	l2blockStart := db.L2BlockStart{
-		BatchNumber:    101,
-		L2BlockNumber:  1337,
-		Timestamp:      time.Now().Unix(),
+		BatchNumber:    101,               // nolint:gomnd
+		L2BlockNumber:  1337,              // nolint:gomnd
+		Timestamp:      time.Now().Unix(), // nolint:gomnd
 		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17},
 		Coinbase:       [20]byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24},
-		ForkID:         5,
+		ForkID:         5, // nolint:gomnd
 	}
 	dataBlockStart := l2blockStart.Encode()
 
 	l2tx := db.L2Transaction{
-		EffectiveGasPricePercentage: 128,
-		IsValid:                     1,
-		EncodedLength:               5,
-		Encoded:                     []byte{1, 2, 3, 4, 5},
+		EffectiveGasPricePercentage: 128,                   // nolint:gomnd
+		IsValid:                     1,                     // nolint:gomnd
+		EncodedLength:               5,                     // nolint:gomnd
+		Encoded:                     []byte{1, 2, 3, 4, 5}, // nolint:gomnd
 	}
 	dataTx := l2tx.Encode()
 
@@ -132,11 +131,13 @@ func runServer(*cli.Context) error {
 		log.Infof(">> GetHeader test: nextEntryNumber[%d]", header.TotalEntries)
 
 		// Get Entry
-		entry, err := s.GetEntry(95)
-		if err != nil {
-			log.Errorf(">> GetEntry test: error %v", err)
-		} else {
-			log.Infof(">> GetEntry test: num[%d] type[%d] length[%d]", entry.EntryNum, entry.EntryType, entry.Length)
+		if header.TotalEntries > 10 { // nolint:gomnd
+			entry, err := s.GetEntry(10) // nolint:gomnd
+			if err != nil {
+				log.Errorf(">> GetEntry test: error %v", err)
+			} else {
+				log.Infof(">> GetEntry test: num[%d] type[%d] length[%d]", entry.EntryNum, entry.EntryType, entry.Length)
+			}
 		}
 
 		// for n := 1; n <= 10000; n++ {
@@ -248,8 +249,8 @@ func runClient(*cli.Context) error {
 	}
 
 	// Command start: Sync and start streaming receive
-	if c.Header.TotalEntries > 10 {
-		c.FromEntry = c.Header.TotalEntries - 10
+	if c.Header.TotalEntries > 10 { // nolint:gomnd
+		c.FromEntry = c.Header.TotalEntries - 10 // nolint:gomnd
 	} else {
 		c.FromEntry = 0
 	}
