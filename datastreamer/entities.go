@@ -6,6 +6,7 @@ import (
 	"unsafe"
 )
 
+// EntityDefinition type to print entity events fields
 type EntityDefinition struct {
 	Name       string
 	StreamType StreamType

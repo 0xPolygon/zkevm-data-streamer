@@ -16,6 +16,7 @@ const (
 	entriesBuffer = 128 // Buffers for the entries channel
 )
 
+// StreamClient type to manage a data stream client
 type StreamClient struct {
 	server     string // Server address to connect IP:port
 	streamType StreamType
@@ -32,6 +33,7 @@ type StreamClient struct {
 	entriesDef map[EntryType]EntityDefinition
 }
 
+// NewClient creates a new data stream client
 func NewClient(server string, streamType StreamType) (StreamClient, error) {
 	// Create the client data stream
 	c := StreamClient{
@@ -47,6 +49,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 	return c, nil
 }
 
+// Start connects to the data stream server and starts getting data from the server
 func (c *StreamClient) Start() error {
 	// Connect to server
 	var err error
@@ -68,10 +71,12 @@ func (c *StreamClient) Start() error {
 	return nil
 }
 
+// SetEntriesDef sets the event data fields definition
 func (c *StreamClient) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) {
 	c.entriesDef = entriesDef
 }
 
+// ExecCommand executes a valid client TCP command
 func (c *StreamClient) ExecCommand(cmd Command) error {
 	log.Infof("%s Executing command %d[%s]...", c.id, cmd, StrCommand[cmd])
 
@@ -121,7 +126,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 }
 
 func writeFullUint64(value uint64, conn net.Conn) error {
-	buffer := make([]byte, 8)
+	buffer := make([]byte, 8) // nolint:gomnd
 	binary.BigEndian.PutUint64(buffer, uint64(value))
 
 	var err error
