@@ -20,8 +20,14 @@ const (
 
 // L2Block is a full l2 block
 type L2Block struct {
-	L2BlockStart
-	L2BlockEnd
+	BatchNumber    uint64         // 8 bytes
+	L2BlockNumber  uint64         // 8 bytes
+	Timestamp      int64          // 8 bytes
+	GlobalExitRoot common.Hash    // 32 bytes
+	Coinbase       common.Address // 20 bytes
+	ForkID         uint16         // 2 bytes
+	BlockHash      common.Hash    // 32 bytes
+	StateRoot      common.Hash    // 32 bytes
 }
 
 // L2BlockStart represents a L2 block start
@@ -66,13 +72,15 @@ func (l L2Transaction) Encode() []byte {
 
 // L2BlockEnd represents a L2 block end
 type L2BlockEnd struct {
-	BlockHash common.Hash // 32 bytes
-	StateRoot common.Hash // 32 bytes
+	L2BlockNumber uint64      // 8 bytes
+	BlockHash     common.Hash // 32 bytes
+	StateRoot     common.Hash // 32 bytes
 }
 
 // Encode returns the encoded EndL2Block as a byte slice
 func (b L2BlockEnd) Encode() []byte {
 	bytes := make([]byte, 0)
+	bytes = binary.LittleEndian.AppendUint64(bytes, b.L2BlockNumber)
 	bytes = append(bytes, b.BlockHash.Bytes()...)
 	bytes = append(bytes, b.StateRoot.Bytes()...)
 	return bytes
