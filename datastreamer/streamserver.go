@@ -13,27 +13,44 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// Command type for the TCP client commands
 type Command uint64
+
+// ClientStatus type for the status of the client
 type ClientStatus uint64
+
+// AOStatus type for the atomic operation internal states
 type AOStatus uint64
+
+// EntryType type for the entry event types
 type EntryType uint32
+
+// StreamType type for the stream types
 type StreamType uint64
+
+// CommandError type for the command responses
 type CommandError uint32
 
 const (
 	maxConnections = 100 // Maximum number of connected clients
 	streamBuffer   = 128 // Buffers for the stream channel
 
-	// Commands
-	CmdStart  Command = 1
-	CmdStop   Command = 2
+	// CmdStart for start TCP client command
+	CmdStart Command = 1
+	// CmdStop for stop TCP client command
+	CmdStop Command = 2
+	// CmdHeader for header TCP client command
 	CmdHeader Command = 3
 
-	// Command errors
-	CmdErrOK             CommandError = 0
+	// CmdErrOK for no error
+	CmdErrOK CommandError = 0
+	// CmdErrAlreadyStarted for client already started error
 	CmdErrAlreadyStarted CommandError = 1
+	// CmdErrAlreadyStopped for client already stopped error
 	CmdErrAlreadyStopped CommandError = 2
-	CmdErrBadFromEntry   CommandError = 3
+	// CmdErrBadFromEntry for invalid starting entry number
+	CmdErrBadFromEntry CommandError = 3
+	// CmdErrInvalidCommand for invalid/unknown command error
 	CmdErrInvalidCommand CommandError = 9
 
 	// Client status
@@ -50,19 +67,22 @@ const (
 )
 
 var (
+	// StrClientStatus for client status description
 	StrClientStatus = map[ClientStatus]string{
-		csSyncing: "Syncing", // TODO: review this state name (proposal: syncing, synced)
+		csSyncing: "Syncing",
 		csSynced:  "Synced",
 		csStopped: "Stopped",
 		csKilled:  "Killed",
 	}
 
+	// StrCommand for TCP commands description
 	StrCommand = map[Command]string{
 		CmdStart:  "Start",
 		CmdStop:   "Stop",
 		CmdHeader: "Header",
 	}
 
+	// StrCommandErrors for TCP command errors description
 	StrCommandErrors = map[CommandError]string{
 		CmdErrOK:             "OK",
 		CmdErrAlreadyStarted: "Already started",
@@ -72,6 +92,7 @@ var (
 	}
 )
 
+// StreamServer type to manage a data stream server
 type StreamServer struct {
 	port     uint16 // Server stream port
 	fileName string // Stream file name
@@ -88,17 +109,20 @@ type StreamServer struct {
 	entriesDef map[EntryType]EntityDefinition
 }
 
+// streamAO type to manage atomic operations
 type streamAO struct {
 	status     AOStatus
 	startEntry uint64
 	entries    []FileEntry
 }
 
+// client type for the server to manage clients
 type client struct {
 	conn   net.Conn
 	status ClientStatus
 }
 
+// ResultEntry type for a result entry
 type ResultEntry struct {
 	packetType uint8 // 0xff:Result
 	length     uint32
@@ -106,6 +130,7 @@ type ResultEntry struct {
 	errorStr   []byte
 }
 
+// New creates a new data stream server
 func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
@@ -143,6 +168,7 @@ func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (
 	return s, nil
 }
 
+// Start opens access to TCP clients and starts broadcasting
 func (s *StreamServer) Start() error {
 	// Start the server data stream
 	var err error
@@ -162,10 +188,12 @@ func (s *StreamServer) Start() error {
 	return nil
 }
 
+// SetEntriesDef sets the event data fields definition
 func (s *StreamServer) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) {
 	s.entriesDef = entriesDef
 }
 
+// waitConnections waits for a new client connection and creates a goroutine to manages it
 func (s *StreamServer) waitConnections() {
 	defer s.ln.Close()
 
@@ -173,7 +201,7 @@ func (s *StreamServer) waitConnections() {
 		conn, err := s.ln.Accept()
 		if err != nil {
 			log.Errorf("Error accepting new connection: %v", err)
-			time.Sleep(2 * time.Second)
+			time.Sleep(2 * time.Second) // nolint:gomnd
 			continue
 		}
 
@@ -181,7 +209,7 @@ func (s *StreamServer) waitConnections() {
 		if len(s.clients) >= maxConnections {
 			log.Warnf("Unable to accept client connection, maximum number of connections reached (%d)", maxConnections)
 			conn.Close()
-			time.Sleep(2 * time.Second)
+			time.Sleep(2 * time.Second) // nolint:gomnd
 			continue
 		}
 
@@ -190,6 +218,7 @@ func (s *StreamServer) waitConnections() {
 	}
 }
 
+// handleConnection reads from the client connection and processes the received commands
 func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
@@ -235,6 +264,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	}
 }
 
+// StartAtomicOp starts a new atomic operation
 func (s *StreamServer) StartAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Infof("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
@@ -250,6 +280,7 @@ func (s *StreamServer) StartAtomicOp() error {
 	return nil
 }
 
+// AddStreamEntry adds a new entry in the current atomic operation
 func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, error) {
 	start := time.Now().UnixNano()
 	defer log.Infof("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
@@ -258,7 +289,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	e := FileEntry{
 		packetType: PtData,
 		Length:     1 + 4 + 4 + 8 + uint32(len(data)),
-		EntryType:  EntryType(etype),
+		EntryType:  etype,
 		EntryNum:   s.nextEntry,
 		Data:       data,
 	}
@@ -290,6 +321,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	return e.EntryNum, nil
 }
 
+// CommitAtomicOp commits the current atomic operation and streams it to the clients
 func (s *StreamServer) CommitAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
@@ -308,7 +340,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 		return err
 	}
 
-	// Do broadcast of the commited atomic operation to the stream clients
+	// Do broadcast of the committed atomic operation to the stream clients
 	atomic := streamAO{
 		status:     s.atomicOp.status,
 		startEntry: s.atomicOp.startEntry,
@@ -324,6 +356,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	return nil
 }
 
+// RollbackAtomicOp cancels the current atomic operation and rollbacks the changes
 func (s *StreamServer) RollbackAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Infof("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
@@ -351,12 +384,14 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	return nil
 }
 
+// GetHeader returns the current committed header
 func (s *StreamServer) GetHeader() HeaderEntry {
 	// Get current file header
 	header := s.sf.getHeaderEntry()
 	return header
 }
 
+// GetEntry searches in the stream file and returns the data for the requested entry
 func (s *StreamServer) GetEntry(entryNum uint64) (FileEntry, error) {
 	// Initialize file stream iterator
 	iterator, err := s.sf.iteratorFrom(entryNum)
@@ -376,12 +411,14 @@ func (s *StreamServer) GetEntry(entryNum uint64) (FileEntry, error) {
 	return iterator.Entry, nil
 }
 
+// clearAtomicOp sets the current atomic operation to none
 func (s *StreamServer) clearAtomicOp() {
 	// No atomic operation in progress and empty entries slice
 	s.atomicOp.entries = s.atomicOp.entries[:0]
 	s.atomicOp.status = aoNone
 }
 
+// broadcastAtomicOp broadcasts committed atomic operations to the clients
 func (s *StreamServer) broadcastAtomicOp() {
 	var err error
 	for {
@@ -419,6 +456,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 	}
 }
 
+// killClient disconnects the client and removes it from server clients struct
 func (s *StreamServer) killClient(clientId string) {
 	if s.clients[clientId] != nil {
 		if s.clients[clientId].status != csKilled {
@@ -431,6 +469,7 @@ func (s *StreamServer) killClient(clientId string) {
 	}
 }
 
+// processCommand manages the received TCP commands from the clients
 func (s *StreamServer) processCommand(command Command, clientId string) error {
 	cli := s.clients[clientId]
 
@@ -478,6 +517,7 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	return err
 }
 
+// processCmdStart processes the TCP Start command from the clients
 func (s *StreamServer) processCmdStart(clientId string) error {
 	// Read from entry number parameter
 	conn := s.clients[clientId].conn
@@ -511,6 +551,7 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 	return err
 }
 
+// processCmdStop processes the TCP Stop command from the clients
 func (s *StreamServer) processCmdStop(clientId string) error {
 	// Log
 	log.Infof("Client %s command Stop", clientId)
@@ -520,6 +561,7 @@ func (s *StreamServer) processCmdStop(clientId string) error {
 	return err
 }
 
+// processCmdHeader processes the TCP Header command from the clients
 func (s *StreamServer) processCmdHeader(clientId string) error {
 	// Log
 	log.Infof("Client %s command Header", clientId)
@@ -548,6 +590,7 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 	return nil
 }
 
+// streamingFromEntry sends to the client the stream data starting from the requested entry number
 func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) error {
 	// Log
 	conn := s.clients[clientId].conn
@@ -592,7 +635,7 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 	return nil
 }
 
-// Send the response to a command that is a result entry
+// sendResultEntry sends the response to a TCP command for the clients
 func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientId string) error {
 	// Prepare the result entry
 	byteSlice := []byte(errorStr)
@@ -624,9 +667,10 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	return nil
 }
 
+// readFullUint64 reads from a connection a complete uint64
 func readFullUint64(conn net.Conn) (uint64, error) {
 	// Read 8 bytes (uint64 value)
-	buffer := make([]byte, 8)
+	buffer := make([]byte, 8) // nolint:gomnd
 	n, err := io.ReadFull(conn, buffer)
 	if err != nil {
 		if err == io.EOF {
@@ -648,7 +692,7 @@ func readFullUint64(conn net.Conn) (uint64, error) {
 	return value, nil
 }
 
-// Encode/convert from an entry type to binary bytes slice
+// encodeResultEntryToBinary encodes from a result entry type to binary bytes slice
 func encodeResultEntryToBinary(e ResultEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
@@ -658,7 +702,7 @@ func encodeResultEntryToBinary(e ResultEntry) []byte {
 	return be
 }
 
-// Decode/convert from binary bytes slice to an entry type
+// DecodeBinaryToResultEntry decodes from binary bytes slice to a result entry type
 func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 	e := ResultEntry{}
 
@@ -680,6 +724,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 	return e, nil
 }
 
+// PrintResultEntry prints result entry type
 func PrintResultEntry(e ResultEntry) {
 	log.Debug("--- RESULT ENTRY -------------------------")
 	log.Debugf("packetType: [%d]", e.packetType)
