@@ -125,6 +125,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	return nil
 }
 
+// writeFullUint64 writes to connection a complete uint64
 func writeFullUint64(value uint64, conn net.Conn) error {
 	buffer := make([]byte, 8) // nolint:gomnd
 	binary.BigEndian.PutUint64(buffer, uint64(value))
@@ -142,7 +143,7 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 	return nil
 }
 
-// Read bytes from server connection and returns a file/stream data entry type
+// readDataEntry reads bytes from server connection and returns a data entry type
 func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	d := FileEntry{}
 
@@ -188,7 +189,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	return d, nil
 }
 
-// Read bytes from server connection and returns a header entry type
+// readHeaderEntry reads bytes from server connection and returns a header entry type
 func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 	h := HeaderEntry{}
 
@@ -216,7 +217,7 @@ func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 	return h, nil
 }
 
-// Read bytes from server connection and returns a result entry type
+// readResultEntry reads bytes from server connection and returns a result entry type
 func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	e := ResultEntry{}
 
@@ -262,7 +263,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	return e, nil
 }
 
-// Goroutine to read from the server all type of packets
+// readEntries reads from the server all type of packets
 func (c *StreamClient) readEntries() {
 	defer c.conn.Close()
 
@@ -316,7 +317,7 @@ func (c *StreamClient) readEntries() {
 	}
 }
 
-// Consume a result entry
+// getResult consumes a result entry
 func (c *StreamClient) getResult(cmd Command) ResultEntry {
 	// Get result entry
 	r := <-c.results
@@ -324,14 +325,14 @@ func (c *StreamClient) getResult(cmd Command) ResultEntry {
 	return r
 }
 
-// Consume a header entry
+// getHeader consumes a header entry
 func (c *StreamClient) getHeader() HeaderEntry {
 	h := <-c.headers
 	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d]", c.id, h.TotalEntries, h.TotalLength)
 	return h
 }
 
-// Goroutine to consume streaming data entries
+// getStreaming consumes streaming data entries
 func (c *StreamClient) getStreaming() {
 	for {
 		e := <-c.entries
@@ -344,7 +345,7 @@ func (c *StreamClient) getStreaming() {
 	}
 }
 
-// DO YOUR CUSTOM BUSINESS LOGIC
+// processEntry processes data entry (DO YOUR CUSTOM BUSINESS LOGIC HERE)
 func (c *StreamClient) processEntry(e FileEntry) error {
 	// Log data entry fields
 	if log.GetLevel() == zapcore.DebugLevel {
