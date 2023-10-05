@@ -109,9 +109,9 @@ Entry data:
 Entry type = 3
 
 Entry data:  
->u64   blockL2Num
+>u64   blockL2Num  
 >u256  l2BlockHash  
->u256  stateRoot
+>u256  stateRoot  
 
 ## API Interface
 
