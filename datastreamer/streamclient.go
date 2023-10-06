@@ -348,7 +348,7 @@ func (c *StreamClient) getStreaming() {
 // processEntry processes data entry (DO YOUR CUSTOM BUSINESS LOGIC HERE)
 func (c *StreamClient) processEntry(e FileEntry) error {
 	// Log data entry fields
-	if log.GetLevel() == zapcore.DebugLevel {
+	if e.EntryType != EtBookmark && log.GetLevel() == zapcore.DebugLevel {
 		entity := c.entriesDef[e.EntryType]
 		if entity.Name != "" {
 			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, e.EntryNum, e.packetType, e.Length, e.EntryType, entity.toString(e.Data))

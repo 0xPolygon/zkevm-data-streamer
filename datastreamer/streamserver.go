@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -35,23 +36,15 @@ const (
 	maxConnections = 100 // Maximum number of connected clients
 	streamBuffer   = 128 // Buffers for the stream channel
 
-	// CmdStart for start TCP client command
-	CmdStart Command = 1
-	// CmdStop for stop TCP client command
-	CmdStop Command = 2
-	// CmdHeader for header TCP client command
-	CmdHeader Command = 3
+	CmdStart  Command = 1 // CmdStart for start TCP client command
+	CmdStop   Command = 2 // CmdStop for stop TCP client command
+	CmdHeader Command = 3 // CmdHeader for header TCP client command
 
-	// CmdErrOK for no error
-	CmdErrOK CommandError = 0
-	// CmdErrAlreadyStarted for client already started error
-	CmdErrAlreadyStarted CommandError = 1
-	// CmdErrAlreadyStopped for client already stopped error
-	CmdErrAlreadyStopped CommandError = 2
-	// CmdErrBadFromEntry for invalid starting entry number
-	CmdErrBadFromEntry CommandError = 3
-	// CmdErrInvalidCommand for invalid/unknown command error
-	CmdErrInvalidCommand CommandError = 9
+	CmdErrOK             CommandError = 0 // CmdErrOK for no error
+	CmdErrAlreadyStarted CommandError = 1 // CmdErrAlreadyStarted for client already started error
+	CmdErrAlreadyStopped CommandError = 2 // CmdErrAlreadyStopped for client already stopped error
+	CmdErrBadFromEntry   CommandError = 3 // CmdErrBadFromEntry for invalid starting entry number
+	CmdErrInvalidCommand CommandError = 9 // CmdErrInvalidCommand for invalid/unknown command error
 
 	// Client status
 	csSyncing ClientStatus = 1
@@ -101,10 +94,11 @@ type StreamServer struct {
 	ln         net.Listener
 	clients    map[string]*client
 
-	nextEntry uint64        // Next sequential entry number
-	atomicOp  streamAO      // Current in progress (if any) atomic operation
-	stream    chan streamAO // Channel to stream committed atomic operations
-	sf        StreamFile
+	nextEntry  uint64        // Next sequential entry number
+	atomicOp   streamAO      // Current in progress (if any) atomic operation
+	stream     chan streamAO // Channel to stream committed atomic operations
+	streamFile StreamFile
+	bookmark   StreamBookmark
 
 	entriesDef map[EntryType]EntityDefinition
 }
@@ -157,13 +151,20 @@ func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (
 
 	// Open (or create) the data stream file
 	var err error
-	s.sf, err = PrepareStreamFile(s.fileName, s.streamType)
+	s.streamFile, err = PrepareStreamFile(s.fileName, s.streamType)
 	if err != nil {
 		return s, err
 	}
 
 	// Initialize the data entry number
-	s.nextEntry = s.sf.header.TotalEntries
+	s.nextEntry = s.streamFile.header.TotalEntries
+
+	// Open (or create) the bookmarks DB
+	name := s.fileName[0:strings.IndexRune(s.fileName, '.')] + ".db"
+	s.bookmark, err = PrepareBookmark(name)
+	if err != nil {
+		return s, err
+	}
 
 	return s, nil
 }
@@ -285,6 +286,40 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	start := time.Now().UnixNano()
 	defer log.Infof("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
 
+	// Add to the stream file
+	entryNum, err := s.addStream("Data", etype, data)
+
+	return entryNum, err
+}
+
+// AddStreamBookmark adds a new bookmark in the current atomic operation
+func (s *StreamServer) AddStreamBookmark(bookmark []byte) (uint64, error) {
+	start := time.Now().UnixNano()
+	defer log.Infof("AddStreamBookmark process time: %vns", time.Now().UnixNano()-start)
+
+	// Add to the stream file
+	entryNum, err := s.addStream("Bookmark", EtBookmark, bookmark)
+	if err != nil {
+		return 0, err
+	}
+
+	// Add to the bookmark index
+	err = s.bookmark.AddBookmark(bookmark, entryNum)
+	if err != nil {
+		return entryNum, err
+	}
+
+	return entryNum, nil
+}
+
+// addStream adds a new stream entry in the current atomic operation
+func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uint64, error) {
+	// Check atomic operation status
+	if s.atomicOp.status != aoStarted {
+		log.Errorf("Add stream entry not allowed, AtomicOp is not started")
+		return 0, errors.New("add stream entry not allowed atomicop is not started")
+	}
+
 	// Generate data entry
 	e := FileEntry{
 		packetType: PtData,
@@ -295,19 +330,19 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 	}
 
 	// Log data entry fields
-	if log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
+	if etype != EtBookmark && log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
 		entity := s.entriesDef[etype]
 		if entity.Name != "" {
-			log.Debugf("Data entry: %d | %d | %d | %d | %s", e.EntryNum, e.packetType, e.Length, e.EntryType, entity.toString(data))
+			log.Debugf("%s entry: %d | %d | %d | %d | %s", desc, e.EntryNum, e.packetType, e.Length, e.EntryType, entity.toString(data))
 		} else {
-			log.Warnf("Data entry: %d | %d | %d | %d | No definition for this entry type", e.EntryNum, e.packetType, e.Length, e.EntryType)
+			log.Warnf("%s entry: %d | %d | %d | %d | No definition for this entry type", desc, e.EntryNum, e.packetType, e.Length, e.EntryType)
 		}
 	} else {
-		log.Infof("Data entry: %d | %d | %d | %d | %d", e.EntryNum, e.packetType, e.Length, e.EntryType, len(data))
+		log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.EntryNum, e.packetType, e.Length, e.EntryType, len(data))
 	}
 
 	// Update header (in memory) and write data entry into the file
-	err := s.sf.AddFileEntry(e)
+	err := s.streamFile.AddFileEntry(e)
 	if err != nil {
 		return 0, nil
 	}
@@ -335,7 +370,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	s.atomicOp.status = aoCommitting
 
 	// Update header into the file (commit the new entries)
-	err := s.sf.writeHeaderEntry()
+	err := s.streamFile.writeHeaderEntry()
 	if err != nil {
 		return err
 	}
@@ -370,7 +405,7 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	s.atomicOp.status = aoRollbacking
 
 	// Restore header in memory (discard current) from the file header (rollback entries)
-	err := s.sf.readHeaderEntry()
+	err := s.streamFile.readHeaderEntry()
 	if err != nil {
 		return err
 	}
@@ -387,26 +422,26 @@ func (s *StreamServer) RollbackAtomicOp() error {
 // GetHeader returns the current committed header
 func (s *StreamServer) GetHeader() HeaderEntry {
 	// Get current file header
-	header := s.sf.getHeaderEntry()
+	header := s.streamFile.getHeaderEntry()
 	return header
 }
 
 // GetEntry searches in the stream file and returns the data for the requested entry
 func (s *StreamServer) GetEntry(entryNum uint64) (FileEntry, error) {
 	// Initialize file stream iterator
-	iterator, err := s.sf.iteratorFrom(entryNum)
+	iterator, err := s.streamFile.iteratorFrom(entryNum)
 	if err != nil {
 		return FileEntry{}, err
 	}
 
 	// Get requested entry data
-	_, err = s.sf.iteratorNext(iterator)
+	_, err = s.streamFile.iteratorNext(iterator)
 	if err != nil {
 		return FileEntry{}, err
 	}
 
 	// Close iterator
-	s.sf.iteratorEnd(iterator)
+	s.streamFile.iteratorEnd(iterator)
 
 	return iterator.Entry, nil
 }
@@ -420,6 +455,9 @@ func (s *StreamServer) clearAtomicOp() {
 
 // broadcastAtomicOp broadcasts committed atomic operations to the clients
 func (s *StreamServer) broadcastAtomicOp() {
+	defer s.streamFile.file.Close()
+	defer s.bookmark.db.Close()
+
 	var err error
 	for {
 		// Wait for new atomic operation to broadcast
@@ -573,7 +611,7 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 	}
 
 	// Get current written/committed file header
-	header := s.sf.getHeaderEntry()
+	header := s.streamFile.getHeaderEntry()
 	binaryHeader := encodeHeaderEntryToBinary(header)
 
 	// Send header entry to the client
@@ -597,14 +635,14 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 	log.Infof("SYNCING %s from entry %d...", clientId, fromEntry)
 
 	// Start file stream iterator
-	iterator, err := s.sf.iteratorFrom(fromEntry)
+	iterator, err := s.streamFile.iteratorFrom(fromEntry)
 	if err != nil {
 		return err
 	}
 
 	// Loop data entries from file stream iterator
 	for {
-		end, err := s.sf.iteratorNext(iterator)
+		end, err := s.streamFile.iteratorNext(iterator)
 		if err != nil {
 			return err
 		}
@@ -630,7 +668,7 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 	log.Infof("Synced %s until %d!", clientId, iterator.Entry.EntryNum)
 
 	// Close iterator
-	s.sf.iteratorEnd(iterator)
+	s.streamFile.iteratorEnd(iterator)
 
 	return nil
 }

@@ -29,6 +29,8 @@ const (
 	PtData    = 2    // PtData is packet type for data entry
 	PtResult  = 0xff // PtResult is packet type not stored/present in file (just for client command result)
 
+	EtBookmark = 0xb0 // EtBookmark is entry type for bookmarks
+
 	FixedSizeFileEntry   = 17 // FixedSizeFileEntry is the fixed size in bytes for a data file entry (1+4+4+8)
 	FixedSizeResultEntry = 9  // FixedSizeResultEntry is the fixed size in bytes for a result entry (1+4+4)
 )
@@ -36,17 +38,17 @@ const (
 // HeaderEntry type for a header entry
 type HeaderEntry struct {
 	packetType   uint8      // 1:Header
-	headLength   uint32     // 29
+	headLength   uint32     // Total length of header entry (29)
 	streamType   StreamType // 1:Sequencer
 	TotalLength  uint64     // Total bytes used in the file
-	TotalEntries uint64     // Total number of data entries (entry type 2)
+	TotalEntries uint64     // Total number of data entries (packet type PtData)
 }
 
 // FileEntry type for a data file entry
 type FileEntry struct {
-	packetType uint8     // 2:Data entry, 0:Padding, (1:Header)
-	Length     uint32    // Length of the entry
-	EntryType  EntryType // e.g. 1:L2 block, 2:L2 tx,...
+	packetType uint8     // 2:Data entry, 0:Padding
+	Length     uint32    // Total length of the entry (17 bytes + length(data))
+	EntryType  EntryType // 0xb0:Bookmark, 1:Event1, 2:Event2,...
 	EntryNum   uint64    // Entry number (sequential starting with 0)
 	Data       []byte
 }
