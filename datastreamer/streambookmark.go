@@ -41,7 +41,7 @@ func (b *StreamBookmark) AddBookmark(bookmark []byte, entryNum uint64) error {
 	// Insert or update the bookmark into DB
 	err := b.db.Put(bookmark, entry, nil)
 	if err != nil {
-		log.Errorf("Error inserting or updating bookmark %v value %d", bookmark, entryNum)
+		log.Errorf("Error inserting or updating bookmark [%v] value [%d]", bookmark, entryNum)
 		return err
 	}
 
@@ -56,6 +56,7 @@ func (b *StreamBookmark) GetBookmark(bookmark []byte) (uint64, error) {
 	// Get the bookmark from DB
 	entry, err := b.db.Get(bookmark, nil)
 	if err != nil {
+		log.Errorf("Error getting bookmark [%v]: %v", bookmark, err)
 		return 0, err
 	}
 

@@ -1,7 +1,6 @@
 package datastreamer
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -36,15 +35,17 @@ const (
 	maxConnections = 100 // Maximum number of connected clients
 	streamBuffer   = 128 // Buffers for the stream channel
 
-	CmdStart  Command = 1 // CmdStart for start TCP client command
-	CmdStop   Command = 2 // CmdStop for stop TCP client command
-	CmdHeader Command = 3 // CmdHeader for header TCP client command
+	CmdStart         Command = 1 // CmdStart for the start from entry TCP client command
+	CmdStartBookmark Command = 4 // CmdStartBookmark for the start from bookmark TCP client command
+	CmdStop          Command = 2 // CmdStop for the stop TCP client command
+	CmdHeader        Command = 3 // CmdHeader for the header TCP client command
 
-	CmdErrOK             CommandError = 0 // CmdErrOK for no error
-	CmdErrAlreadyStarted CommandError = 1 // CmdErrAlreadyStarted for client already started error
-	CmdErrAlreadyStopped CommandError = 2 // CmdErrAlreadyStopped for client already stopped error
-	CmdErrBadFromEntry   CommandError = 3 // CmdErrBadFromEntry for invalid starting entry number
-	CmdErrInvalidCommand CommandError = 9 // CmdErrInvalidCommand for invalid/unknown command error
+	CmdErrOK              CommandError = 0 // CmdErrOK for no error
+	CmdErrAlreadyStarted  CommandError = 1 // CmdErrAlreadyStarted for client already started error
+	CmdErrAlreadyStopped  CommandError = 2 // CmdErrAlreadyStopped for client already stopped error
+	CmdErrBadFromEntry    CommandError = 3 // CmdErrBadFromEntry for invalid starting entry number
+	CmdErrBadFromBookmark CommandError = 4 // CmdErrBadFromBookmark for invalid starting bookmark
+	CmdErrInvalidCommand  CommandError = 9 // CmdErrInvalidCommand for invalid/unknown command error
 
 	// Client status
 	csSyncing ClientStatus = 1
@@ -70,18 +71,20 @@ var (
 
 	// StrCommand for TCP commands description
 	StrCommand = map[Command]string{
-		CmdStart:  "Start",
-		CmdStop:   "Stop",
-		CmdHeader: "Header",
+		CmdStart:         "Start",
+		CmdStartBookmark: "StartBookmark",
+		CmdStop:          "Stop",
+		CmdHeader:        "Header",
 	}
 
 	// StrCommandErrors for TCP command errors description
 	StrCommandErrors = map[CommandError]string{
-		CmdErrOK:             "OK",
-		CmdErrAlreadyStarted: "Already started",
-		CmdErrAlreadyStopped: "Already stopped",
-		CmdErrBadFromEntry:   "Bad from entry",
-		CmdErrInvalidCommand: "Invalid command",
+		CmdErrOK:              "OK",
+		CmdErrAlreadyStarted:  "Already started",
+		CmdErrAlreadyStopped:  "Already stopped",
+		CmdErrBadFromEntry:    "Bad from entry",
+		CmdErrBadFromBookmark: "Bad from bookmark",
+		CmdErrInvalidCommand:  "Invalid command",
 	}
 )
 
@@ -446,6 +449,45 @@ func (s *StreamServer) GetEntry(entryNum uint64) (FileEntry, error) {
 	return iterator.Entry, nil
 }
 
+// GetBookmark returns the entry number pointed by the bookmark
+func (s *StreamServer) GetBookmark(bookmark []byte) (uint64, error) {
+	return s.bookmark.GetBookmark(bookmark)
+}
+
+// GetFirstEventAfterBookmark searches in the stream file by bookmark and returns the first event entry data
+func (s *StreamServer) GetFirstEventAfterBookmark(bookmark []byte) (FileEntry, error) {
+	var err error
+	entry := FileEntry{}
+
+	// Get entry of the bookmark
+	entryNum, err := s.bookmark.GetBookmark(bookmark)
+	if err != nil {
+		return entry, err
+	}
+
+	// Initialize file stream iterator from bookmark's entry
+	iterator, err := s.streamFile.iteratorFrom(entryNum)
+	if err != nil {
+		return entry, err
+	}
+
+	// Loop until find the first event entry (skip bookmarks entries)
+	for {
+		// Get next entry data
+		end, err := s.streamFile.iteratorNext(iterator)
+
+		// Loop break conditions (error, end of file, entry type different from bookmark)
+		if err != nil || end || iterator.Entry.EntryType != EtBookmark {
+			break
+		}
+	}
+
+	// Close iterator
+	s.streamFile.iteratorEnd(iterator)
+
+	return iterator.Entry, err
+}
+
 // clearAtomicOp sets the current atomic operation to none
 func (s *StreamServer) clearAtomicOp() {
 	// No atomic operation in progress and empty entries slice
@@ -527,6 +569,19 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 			}
 		}
 
+	case CmdStartBookmark:
+		if cli.status != csStopped {
+			log.Error("Stream to client already started!")
+			err = errors.New("client already started")
+			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
+		} else {
+			cli.status = csSyncing
+			err = s.processCmdStartBookmark(clientId)
+			if err == nil {
+				cli.status = csSynced
+			}
+		}
+
 	case CmdStop:
 		if cli.status != csSynced {
 			log.Error("Stream to client already stopped!")
@@ -584,6 +639,48 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 	// Stream entries data from the requested entry number
 	if fromEntry < s.nextEntry {
 		err = s.streamingFromEntry(clientId, fromEntry)
+	}
+
+	return err
+}
+
+// processCmdStartBookmark processes the TCP Start Bookmark command from the clients
+func (s *StreamServer) processCmdStartBookmark(clientId string) error {
+	// Read bookmark length parameter
+	conn := s.clients[clientId].conn
+	length, err := readFullUint32(conn)
+	if err != nil {
+		return err
+	}
+
+	// Read bookmark parameter
+	bookmark, err := readFullBytes(length, conn)
+	if err != nil {
+		return err
+	}
+
+	// Log
+	log.Infof("Client %s command StartBookmark [%v]", clientId, bookmark)
+
+	// Get bookmark
+	entryNum, err := s.bookmark.GetBookmark(bookmark)
+	if err != nil {
+		log.Errorf("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, clientId, err)
+		err = errors.New("startbookmark invalid param from bookmark")
+		_ = s.sendResultEntry(uint32(CmdErrBadFromBookmark), StrCommandErrors[CmdErrBadFromBookmark], clientId)
+		return err
+	}
+
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
+
+	// Stream entries data from the entry number marked by the bookmark
+	log.Infof("Client %s Bookmark [%v] is the entry number [%d]", clientId, bookmark, entryNum)
+	if entryNum < s.nextEntry {
+		err = s.streamingFromEntry(clientId, entryNum)
 	}
 
 	return err
@@ -705,11 +802,19 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	return nil
 }
 
+// BookmarkPrintDump prints all bookmarks
+func (s *StreamServer) BookmarkPrintDump() {
+	err := s.bookmark.PrintDump()
+	if err != nil {
+		log.Errorf("Error dumping bookmark database")
+	}
+}
+
 // readFullUint64 reads from a connection a complete uint64
 func readFullUint64(conn net.Conn) (uint64, error) {
 	// Read 8 bytes (uint64 value)
 	buffer := make([]byte, 8) // nolint:gomnd
-	n, err := io.ReadFull(conn, buffer)
+	_, err := io.ReadFull(conn, buffer)
 	if err != nil {
 		if err == io.EOF {
 			log.Debugf("Client %s close connection", conn.RemoteAddr().String())
@@ -720,14 +825,47 @@ func readFullUint64(conn net.Conn) (uint64, error) {
 	}
 
 	// Convert bytes to uint64
-	var value uint64
-	err = binary.Read(bytes.NewReader(buffer[:n]), binary.BigEndian, &value)
+	value := binary.BigEndian.Uint64(buffer[0:8])
+
+	return value, nil
+}
+
+// readFullUint32 reads from a connection a complete uint32
+func readFullUint32(conn net.Conn) (uint32, error) {
+	// Read 4 bytes (uint32 value)
+	buffer := make([]byte, 4) // nolint:gomnd
+	_, err := io.ReadFull(conn, buffer)
 	if err != nil {
-		log.Error("Error converting bytes to uint64")
+		if err == io.EOF {
+			log.Debugf("Client %s close connection", conn.RemoteAddr().String())
+		} else {
+			log.Warnf("Error reading from client: %v", err)
+		}
 		return 0, err
 	}
 
+	// Convert bytes to uint32
+	value := binary.BigEndian.Uint32(buffer[0:4])
+
 	return value, nil
+}
+
+// readFullBytes reads from a connection number length of bytes
+func readFullBytes(length uint32, conn net.Conn) ([]byte, error) {
+	var err error = nil
+	// Read number length of bytes
+	buffer := make([]byte, length)
+	if length > 0 {
+		_, err := io.ReadFull(conn, buffer)
+		if err != nil {
+			if err == io.EOF {
+				log.Debugf("Client %s close connection", conn.RemoteAddr().String())
+			} else {
+				log.Warnf("Error reading from client: %v", err)
+			}
+		}
+	}
+	return buffer, err
 }
 
 // encodeResultEntryToBinary encodes from a result entry type to binary bytes slice

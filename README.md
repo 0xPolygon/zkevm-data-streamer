@@ -44,11 +44,15 @@ All the commands available for stream clients returns a result.
 Some commands like start may return more data.
 
 ### Start 
+Syncs from entry number (`fromEntryNumber`) and starts receiving data streaming.
+
 >u64 command = 1  
 >u64 streamType // 1:Sequencer  
 >u64 fromEntryNumber  
 
 ### StartBookmark
+Syncs from bookmark (`fromBookmark`) and starts receiving data streaming.
+
 >u64 command = 4  
 >u64 streamType // 1:Sequencer  
 >u32 bookmarkLength // Length of fromBookmark  
@@ -128,3 +132,5 @@ Entry data:
 ### Query data
 * GetHeader() -> returns struct HeaderEntry
 * GetEntry(u64 entryNumber) -> returns struct FileEntry
+* GetBookmark(u8[] bookmark) -> returns u64 entryNumber
+* GetFirstEventAfterBookmark(u8[] bookmark) -> returns struct FileEntry

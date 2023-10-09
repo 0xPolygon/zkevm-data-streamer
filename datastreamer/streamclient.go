@@ -23,8 +23,9 @@ type StreamClient struct {
 	conn       net.Conn
 	id         string // Client id
 
-	FromEntry uint64      // Set starting entry data (for Start command)
-	Header    HeaderEntry // Header info received (from Header command)
+	FromEntry    uint64      // Set starting entry number for the Start command
+	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
+	Header       HeaderEntry // Header info received from the Header command
 
 	results chan ResultEntry // Channel to read command results
 	headers chan HeaderEntry // Channel to read header entries from the command Header
@@ -81,7 +82,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	log.Infof("%s Executing command %d[%s]...", c.id, cmd, StrCommand[cmd])
 
 	// Check valid command
-	if cmd < CmdStart || cmd > CmdHeader {
+	if cmd != CmdStart && cmd != CmdStartBookmark && cmd != CmdHeader && cmd != CmdStop {
 		log.Errorf("%s Invalid command %d", c.id, cmd)
 		return errors.New("invalid command")
 	}
@@ -89,23 +90,32 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	// Send command
 	err := writeFullUint64(uint64(cmd), c.conn)
 	if err != nil {
-		log.Errorf("%s %v", c.id, err)
 		return err
 	}
 	// Send stream type
 	err = writeFullUint64(uint64(c.streamType), c.conn)
 	if err != nil {
-		log.Errorf("%s %v", c.id, err)
 		return err
 	}
 
-	// Send the Start command parameter
+	// Send the Start and StartBookmark parameters
 	if cmd == CmdStart {
 		log.Infof("%s ...from entry %d", c.id, c.FromEntry)
-		// Send starting/from entry num	ber
+		// Send starting/from entry number
 		err = writeFullUint64(c.FromEntry, c.conn)
 		if err != nil {
-			log.Errorf("%s %v", c.id, err)
+			return err
+		}
+	} else if cmd == CmdStartBookmark {
+		log.Infof("%s ...from bookmark [%v]", c.id, c.FromBookmark)
+		// Send starting/from bookmark length
+		err = writeFullUint32(uint32(len(c.FromBookmark)), c.conn)
+		if err != nil {
+			return err
+		}
+		// Send starting/from bookmark
+		err = writeFullBytes(c.FromBookmark, c.conn)
+		if err != nil {
 			return err
 		}
 	}
@@ -128,8 +138,41 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 // writeFullUint64 writes to connection a complete uint64
 func writeFullUint64(value uint64, conn net.Conn) error {
 	buffer := make([]byte, 8) // nolint:gomnd
-	binary.BigEndian.PutUint64(buffer, uint64(value))
+	binary.BigEndian.PutUint64(buffer, value)
 
+	var err error
+	if conn != nil {
+		_, err = conn.Write(buffer)
+	} else {
+		err = errors.New("error nil connection")
+	}
+	if err != nil {
+		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
+		return err
+	}
+	return nil
+}
+
+// writeFullUint32 writes to connection a complete uint32
+func writeFullUint32(value uint32, conn net.Conn) error {
+	buffer := make([]byte, 4) // nolint:gomnd
+	binary.BigEndian.PutUint32(buffer, value)
+
+	var err error
+	if conn != nil {
+		_, err = conn.Write(buffer)
+	} else {
+		err = errors.New("error nil connection")
+	}
+	if err != nil {
+		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
+		return err
+	}
+	return nil
+}
+
+// writeFullBytes writes to connection the complete buffer
+func writeFullBytes(buffer []byte, conn net.Conn) error {
 	var err error
 	if conn != nil {
 		_, err = conn.Write(buffer)

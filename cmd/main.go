@@ -93,6 +93,7 @@ func runServer(*cli.Context) error {
 		return err
 	}
 
+	// s.BookmarkPrintDump()
 	// time.Sleep(5 * time.Second) // nolint:gomnd
 
 	// ------------------------------------------------------------
@@ -123,12 +124,29 @@ func runServer(*cli.Context) error {
 
 	imark := s.GetHeader().TotalEntries
 
+	// bookmark := []byte("bookmark4800") // Bookmark testing
+
 	end := make(chan uint8)
 
 	go func(chan uint8) {
 		var latestRollback uint64 = 0
 
 		rand.Seed(time.Now().UnixNano())
+
+		// Get Bookmark
+		// bookEntry, err := s.GetBookmark(bookmark)
+		// if err != nil {
+		// 	log.Errorf(">> GetBookmark test: error %v", err)
+		// } else {
+		// 	log.Infof(">> GetBookmark test: entry[%d]", bookEntry)
+		// }
+
+		// eventEntry, err := s.GetFirstEventAfterBookmark(bookmark)
+		// if err != nil {
+		// 	log.Errorf(">> GetFirstEventAfterBookmark test: error %v", err)
+		// } else {
+		// 	log.Infof(">> GetFirstEventAfterBookmark test: entry[%d] length[%d]", eventEntry.EntryNum, eventEntry.Length)
+		// }
 
 		// Get Header
 		header := s.GetHeader()
@@ -262,7 +280,14 @@ func runClient(*cli.Context) error {
 		return err
 	}
 
-	// Command start: Sync and start streaming receive
+	// Command StartBookmark: Sync and start streaming receive from bookmark
+	// c.FromBookmark = []byte("bookmark4800")
+	// err = c.ExecCommand(datastreamer.CmdStartBookmark)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// Command start: Sync and start streaming receive from entry number
 	if c.Header.TotalEntries > 10 { // nolint:gomnd
 		c.FromEntry = c.Header.TotalEntries - 10 // nolint:gomnd
 	} else {
