@@ -12,10 +12,10 @@ Header page size = 4096 bytes
 #### Magic numbers
 At the beginning of the file there are the following magic bytes (file signature): `polygonDATSTREAM`
 
-#### Header entry format
+#### Header entry format (HeaderEntry struct)
 
->u8 packetType = 1  
->u32 headerLength = 29  
+>u8 packetType = 1 // 1:Header  
+>u32 headerLength = 29 // Total length of header entry  
 >u64 streamType // 1:Sequencer  
 >u64 totalLength // Total bytes used in the file  
 >u64 totalEntries // Total number of data entries  
@@ -25,10 +25,10 @@ At the beginning of the file there are the following magic bytes (file signature
 From the second page starts the data pages.  
 Page size = 1 MB
 
-#### Data entry format
->u8 packetType // 2:Data entry, 0:Padding, (1:Header)  
->u32 length // Total length of the entry (17 bytes + length(data))  
->u32 entryType // 1:L2 block, 2:L2 tx  
+#### Data entry format (FileEntry struct)
+>u8 packetType // 2:Data entry, 0:Padding  
+>u32 length // Total length of data entry (17 bytes + length(data))  
+>u32 entryType // 0xb0:Bookmark, 1:Event1, 2:Event2,...  
 >u64 entryNumber // Entry number (sequential starting with 0)  
 >u8[] data  
 
@@ -44,18 +44,26 @@ All the commands available for stream clients returns a result.
 Some commands like start may return more data.
 
 ### Start 
+Syncs from entry number (`fromEntryNumber`) and starts receiving data streaming.
 
->u64 command = 1;  
+>u64 command = 1  
 >u64 streamType // 1:Sequencer  
->u64 fromEntryNumber;  
+>u64 fromEntryNumber  
 
-After the command, the system start stream data from that entry number.
+### StartBookmark
+Syncs from bookmark (`fromBookmark`) and starts receiving data streaming.
+
+>u64 command = 4  
+>u64 streamType // 1:Sequencer  
+>u32 bookmarkLength // Length of fromBookmark  
+>u8[] fromBookmark  
+
+After either start command, the system start stream data from that entry number or bookmark.
 
 If already started terminate connection.
 
 ### Stop
-
->u64 command = 2;  
+>u64 command = 2  
 >u64 streamType // 1:Sequencer  
 
 Stop streaming data.
@@ -65,17 +73,16 @@ If not started terminate connection.
 The result is sended just after it's stopped.
 
 ### Header 
-
->u64 command = 3;  
+>u64 command = 3  
 >u64 streamType // 1:Sequencer  
 
 Returns the current status of the header.
 
 If started, terminate the connection.
 
-#### Result format
+#### Result format (ResultEntry struct)
 
->u8 packetType // 0xFF:Result  
+>u8 packetType // 0xff:Result  
 >u32 length // Total length of the entry  
 >u32 errorNum // Error code (0:OK)  
 >u8[] errorStr
@@ -115,7 +122,15 @@ Entry data:
 
 ## API Interface
 
+### Send data
 * StartAtomicOp()  
-* AddStreamEntry(u32 entryType, u8[] data) -> return u64 entryNumber  
+* AddStreamBookmark(u8[] bookmark) -> returns u64 entryNumber  
+* AddStreamEntry(u32 entryType, u8[] data) -> returns u64 entryNumber  
 * CommitAtomicOp()  
 * RollbackAtomicOp()  
+
+### Query data
+* GetHeader() -> returns struct HeaderEntry
+* GetEntry(u64 entryNumber) -> returns struct FileEntry
+* GetBookmark(u8[] bookmark) -> returns u64 entryNumber
+* GetFirstEventAfterBookmark(u8[] bookmark) -> returns struct FileEntry

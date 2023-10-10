@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ const (
 	StSequencer = 1 // StSequencer sequencer stream type
 )
 
+// main runs a datastream server or client
 func main() {
 	// Set log level
 	log.Init(log.Config{
@@ -54,11 +56,12 @@ func main() {
 	}
 }
 
+// runServer runs a local datastream server and tests its features
 func runServer(*cli.Context) error {
 	log.Info(">> App begin")
 
 	// Create stream server
-	s, err := datastreamer.New(6900, StSequencer, "streamfile.bin", nil) // nolint:gomnd
+	s, err := datastreamer.New(6900, StSequencer, "datastream.bin", nil) // nolint:gomnd
 	if err != nil {
 		os.Exit(1)
 	}
@@ -90,7 +93,8 @@ func runServer(*cli.Context) error {
 		return err
 	}
 
-	// time.Sleep(5 * time.Second)
+	// s.BookmarkPrintDump()
+	// time.Sleep(5 * time.Second) // nolint:gomnd
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
@@ -118,12 +122,31 @@ func runServer(*cli.Context) error {
 	}
 	dataBlockEnd := l2BlockEnd.Encode()
 
+	imark := s.GetHeader().TotalEntries
+
+	// bookmark := []byte("bookmark4800") // Bookmark testing
+
 	end := make(chan uint8)
 
 	go func(chan uint8) {
 		var latestRollback uint64 = 0
 
 		rand.Seed(time.Now().UnixNano())
+
+		// Get Bookmark
+		// bookEntry, err := s.GetBookmark(bookmark)
+		// if err != nil {
+		// 	log.Errorf(">> GetBookmark test: error %v", err)
+		// } else {
+		// 	log.Infof(">> GetBookmark test: entry[%d]", bookEntry)
+		// }
+
+		// eventEntry, err := s.GetFirstEventAfterBookmark(bookmark)
+		// if err != nil {
+		// 	log.Errorf(">> GetFirstEventAfterBookmark test: error %v", err)
+		// } else {
+		// 	log.Infof(">> GetFirstEventAfterBookmark test: entry[%d] length[%d]", eventEntry.EntryNum, eventEntry.Length)
+		// }
 
 		// Get Header
 		header := s.GetHeader()
@@ -149,6 +172,13 @@ func runServer(*cli.Context) error {
 			}
 
 			// Add stream entries:
+			// Bookmark
+			bookmark := fmt.Sprintf("bookmark%d", imark)
+			_, err := s.AddStreamBookmark([]byte(bookmark))
+			if err != nil {
+				log.Errorf(">> App error! AddStreamBookmark: %v", err)
+			}
+
 			// Block Start
 			entryBlockStart, err := s.AddStreamEntry(EtL2BlockStart, dataBlockStart)
 			if err != nil {
@@ -165,11 +195,13 @@ func runServer(*cli.Context) error {
 				}
 			}
 			// Block Start
-			_, err = s.AddStreamEntry(EtL2BlockEnd, dataBlockEnd)
+			entryBlockEnd, err := s.AddStreamEntry(EtL2BlockEnd, dataBlockEnd)
 			if err != nil {
 				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockEnd, err)
 				return
 			}
+
+			imark = entryBlockEnd + 1
 
 			if entryBlockStart%10 != 0 || latestRollback == entryBlockStart {
 				// Commit atomic operation
@@ -187,7 +219,7 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlockStart
 			}
 
-			// time.Sleep(5000 * time.Millisecond)
+			// time.Sleep(5000 * time.Millisecond) // nolint:gomnd
 		}
 		// end <- 0
 	}(end)
@@ -207,6 +239,7 @@ func runServer(*cli.Context) error {
 	return nil
 }
 
+// runClient runs a local datastream client and tests its features
 func runClient(*cli.Context) error {
 	// Create client
 	// c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
@@ -247,7 +280,14 @@ func runClient(*cli.Context) error {
 		return err
 	}
 
-	// Command start: Sync and start streaming receive
+	// Command StartBookmark: Sync and start streaming receive from bookmark
+	// c.FromBookmark = []byte("bookmark4800")
+	// err = c.ExecCommand(datastreamer.CmdStartBookmark)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// Command start: Sync and start streaming receive from entry number
 	if c.Header.TotalEntries > 10 { // nolint:gomnd
 		c.FromEntry = c.Header.TotalEntries - 10 // nolint:gomnd
 	} else {
