@@ -17,8 +17,8 @@ At the beginning of the file there are the following magic bytes (file signature
 >u8 packetType = 1 // 1:Header  
 >u32 headerLength = 29 // Total length of header entry  
 >u64 streamType // 1:Sequencer  
->u64 totalLength // Total bytes used in the file  
->u64 totalEntries // Total number of data entries  
+>u64 TotalLength // Total bytes used in the file  
+>u64 TotalEntries // Total number of data entries  
 
 ### Data page
 
@@ -27,9 +27,9 @@ Page size = 1 MB
 
 #### Data entry format (FileEntry struct)
 >u8 packetType // 2:Data entry, 0:Padding  
->u32 length // Total length of data entry (17 bytes + length(data))  
->u32 entryType // 0xb0:Bookmark, 1:Event1, 2:Event2,...  
->u64 entryNumber // Entry number (sequential starting with 0)  
+>u32 Length // Total length of data entry (17 bytes + length(data))  
+>u32 Type // 0xb0:Bookmark, 1:Event1, 2:Event2,...  
+>u64 Number // Entry number (sequential starting with 0)  
 >u8[] data  
 
 If an entry do not fits in the remaining page space we store this entry in the next page.

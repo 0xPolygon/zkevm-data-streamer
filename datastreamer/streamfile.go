@@ -48,8 +48,8 @@ type HeaderEntry struct {
 type FileEntry struct {
 	packetType uint8     // 2:Data entry, 0:Padding
 	Length     uint32    // Total length of the entry (17 bytes + length(data))
-	EntryType  EntryType // 0xb0:Bookmark, 1:Event1, 2:Event2,...
-	EntryNum   uint64    // Entry number (sequential starting with 0)
+	Type       EntryType // 0xb0:Bookmark, 1:Event1, 2:Event2,...
+	Number     uint64    // Entry number (sequential starting with 0)
 	Data       []byte
 }
 
@@ -412,8 +412,8 @@ func encodeFileEntryToBinary(e FileEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.Length)
-	be = binary.BigEndian.AppendUint32(be, uint32(e.EntryType))
-	be = binary.BigEndian.AppendUint64(be, e.EntryNum)
+	be = binary.BigEndian.AppendUint32(be, uint32(e.Type))
+	be = binary.BigEndian.AppendUint64(be, e.Number)
 	be = append(be, e.Data...)
 	return be
 }
@@ -609,8 +609,8 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 
 	d.packetType = b[0]
 	d.Length = binary.BigEndian.Uint32(b[1:5])
-	d.EntryType = EntryType(binary.BigEndian.Uint32(b[5:9]))
-	d.EntryNum = binary.BigEndian.Uint64(b[9:17])
+	d.Type = EntryType(binary.BigEndian.Uint32(b[5:9]))
+	d.Number = binary.BigEndian.Uint64(b[9:17])
 	d.Data = b[17:]
 
 	if uint32(len(d.Data)) != d.Length-FixedSizeFileEntry {
@@ -635,7 +635,7 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 		fromEntry: entryNum,
 		file:      file,
 		Entry: FileEntry{
-			EntryNum: 0,
+			Number: 0,
 		},
 	}
 
@@ -648,7 +648,7 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 // iteratorNext gets the next data entry in the stream file for the iterator
 func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Check end of entries condition
-	if iterator.Entry.EntryNum == f.writtenHead.TotalEntries {
+	if iterator.Entry.Number == f.writtenHead.TotalEntries {
 		return true, nil
 	}
 
@@ -896,13 +896,13 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 		}
 
 		// Not found
-		if end || iterator.Entry.EntryNum > iterator.fromEntry {
+		if end || iterator.Entry.Number > iterator.fromEntry {
 			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
 			return errors.New("entry not found")
 		}
 
 		// Found!
-		if iterator.Entry.EntryNum == iterator.fromEntry {
+		if iterator.Entry.Number == iterator.fromEntry {
 			// Seek backward to the end of fixed data
 			backward := iterator.Entry.Length - FixedSizeFileEntry
 			_, err = iterator.file.Seek(-int64(backward), io.SeekCurrent)

@@ -327,8 +327,8 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	e := FileEntry{
 		packetType: PtData,
 		Length:     1 + 4 + 4 + 8 + uint32(len(data)),
-		EntryType:  etype,
-		EntryNum:   s.nextEntry,
+		Type:       etype,
+		Number:     s.nextEntry,
 		Data:       data,
 	}
 
@@ -336,12 +336,12 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	if etype != EtBookmark && log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
 		entity := s.entriesDef[etype]
 		if entity.Name != "" {
-			log.Debugf("%s entry: %d | %d | %d | %d | %s", desc, e.EntryNum, e.packetType, e.Length, e.EntryType, entity.toString(data))
+			log.Debugf("%s entry: %d | %d | %d | %d | %s", desc, e.Number, e.packetType, e.Length, e.Type, entity.toString(data))
 		} else {
-			log.Warnf("%s entry: %d | %d | %d | %d | No definition for this entry type", desc, e.EntryNum, e.packetType, e.Length, e.EntryType)
+			log.Warnf("%s entry: %d | %d | %d | %d | No definition for this entry type", desc, e.Number, e.packetType, e.Length, e.Type)
 		}
 	} else {
-		log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.EntryNum, e.packetType, e.Length, e.EntryType, len(data))
+		log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
 	}
 
 	// Update header (in memory) and write data entry into the file
@@ -356,7 +356,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	// Increase sequential entry number
 	s.nextEntry++
 
-	return e.EntryNum, nil
+	return e.Number, nil
 }
 
 // CommitAtomicOp commits the current atomic operation and streams it to the clients
@@ -477,7 +477,7 @@ func (s *StreamServer) GetFirstEventAfterBookmark(bookmark []byte) (FileEntry, e
 		end, err := s.streamFile.iteratorNext(iterator)
 
 		// Loop break conditions (error, end of file, entry type different from bookmark)
-		if err != nil || end || iterator.Entry.EntryType != EtBookmark {
+		if err != nil || end || iterator.Entry.Type != EtBookmark {
 			break
 		}
 	}
@@ -516,7 +516,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 			// Send entries
 			for _, entry := range broadcastOp.entries {
-				log.Debugf("Sending data entry %d (type %d) to %s", entry.EntryNum, entry.EntryType, id)
+				log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
 				binaryEntry := encodeFileEntryToBinary(entry)
 
 				// Send the file data entry
@@ -751,18 +751,18 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 
 		// Send the file data entry
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
-		log.Infof("Sending data entry %d (type %d) to %s", iterator.Entry.EntryNum, iterator.Entry.EntryType, clientId)
+		log.Infof("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, clientId)
 		if conn != nil {
 			_, err = conn.Write(binaryEntry)
 		} else {
 			err = errors.New("error nil connection")
 		}
 		if err != nil {
-			log.Warnf("Error sending entry %d to %s: %v", iterator.Entry.EntryNum, clientId, err)
+			log.Warnf("Error sending entry %d to %s: %v", iterator.Entry.Number, clientId, err)
 			return err
 		}
 	}
-	log.Infof("Synced %s until %d!", clientId, iterator.Entry.EntryNum)
+	log.Infof("Synced %s until %d!", clientId, iterator.Entry.Number)
 
 	// Close iterator
 	s.streamFile.iteratorEnd(iterator)

@@ -71,15 +71,19 @@ func (b *StreamBookmark) GetBookmark(bookmark []byte) (uint64, error) {
 
 // PrintDump prints all bookmarks stored in the database
 func (b *StreamBookmark) PrintDump() error {
+	// Counter
+	var count uint64 = 0
+
 	// Initialize iterator
 	iter := b.db.NewIterator(nil, nil)
 
 	// Iterator loop
 	for iter.Next() {
+		count++
 		bookmark := iter.Key()
 		entry := iter.Value()
 		entryNum := binary.BigEndian.Uint64(entry)
-		log.Infof("Bookmark[%v] value[%d]", bookmark, entryNum)
+		log.Debugf("Bookmark[%v] value[%d]", bookmark, entryNum)
 	}
 
 	// Check if error
@@ -90,6 +94,9 @@ func (b *StreamBookmark) PrintDump() error {
 
 	// Finalize iterator
 	iter.Release()
+
+	// Log total
+	log.Infof("Number of bookmarks: [%d]", count)
 
 	return err
 }
