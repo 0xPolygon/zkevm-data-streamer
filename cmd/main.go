@@ -158,7 +158,7 @@ func runServer(*cli.Context) error {
 			if err != nil {
 				log.Errorf(">> GetEntry test: error %v", err)
 			} else {
-				log.Infof(">> GetEntry test: num[%d] type[%d] length[%d]", entry.EntryNum, entry.EntryType, entry.Length)
+				log.Infof(">> GetEntry test: num[%d] type[%d] length[%d]", entry.Number, entry.Type, entry.Length)
 			}
 		}
 
