@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"unsafe"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // EntityDefinition type to print entity events fields
@@ -29,7 +31,7 @@ func (e EntityDefinition) toString(entity []byte) string {
 		value := ""
 
 		if val.Type().Field(i).Type.Kind() == reflect.Slice {
-			value = string(entity[accumulatedLength:])
+			value = common.Bytes2Hex(entity[accumulatedLength:])
 		} else if val.Type().Field(i).Type.Kind() == reflect.Uint8 {
 			value = fmt.Sprintf("%v", entity[accumulatedLength])
 		} else if val.Type().Field(i).Type.Kind() == reflect.Uint32 {
