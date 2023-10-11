@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"unsafe"
 
+	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -48,6 +49,7 @@ func (e EntityDefinition) toString(entity []byte) string {
 		}
 
 		accumulatedLength += int(val.Type().Field(i).Type.Size())
+		log.Infof("AccumulatedLength: %v", accumulatedLength)
 	}
 	return stringValue
 }
