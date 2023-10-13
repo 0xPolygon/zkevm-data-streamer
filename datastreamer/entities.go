@@ -13,7 +13,8 @@ type EntityDefinition struct {
 	Definition reflect.Type
 }
 
-func (e EntityDefinition) toString(entity []byte) string {
+// ToString converts entity slice of bytes to readable string with field names and values
+func (e EntityDefinition) ToString(entity []byte) string {
 	obj := reflect.NewAt(e.Definition, unsafe.Pointer(&entity[0]))
 	val := obj.Elem()
 	stringValue := ""

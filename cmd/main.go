@@ -61,7 +61,7 @@ func runServer(*cli.Context) error {
 	log.Info(">> App begin")
 
 	// Create stream server
-	s, err := datastreamer.New(6900, StSequencer, "datastream.bin", nil) // nolint:gomnd
+	s, err := datastreamer.NewServer(6900, StSequencer, "internal2.bin", nil) // nolint:gomnd
 	if err != nil {
 		os.Exit(1)
 	}
@@ -94,7 +94,7 @@ func runServer(*cli.Context) error {
 	}
 
 	// s.BookmarkPrintDump()
-	// time.Sleep(5 * time.Second) // nolint:gomnd
+	time.Sleep(5 * time.Second) // nolint:gomnd
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
@@ -219,7 +219,7 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlockStart
 			}
 
-			// time.Sleep(5000 * time.Millisecond) // nolint:gomnd
+			time.Sleep(5000 * time.Millisecond) // nolint:gomnd
 		}
 		// end <- 0
 	}(end)
@@ -242,8 +242,8 @@ func runServer(*cli.Context) error {
 // runClient runs a local datastream client and tests its features
 func runClient(*cli.Context) error {
 	// Create client
-	// c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
-	c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
+	c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
+	// c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
 	if err != nil {
 		return err
 	}
@@ -312,3 +312,19 @@ func runClient(*cli.Context) error {
 	log.Info("Client stopped")
 	return nil
 }
+
+// func processReceivedEntry(e datastreamer.FileEntry, c datastreamer.StreamClient) error {
+// 	// Log data entry fields
+// 	if e.Type != datastreamer.EtBookmark && log.GetLevel() == zapcore.DebugLevel {
+// 		entity := c.GetEntryDef(e.Type)
+// 		if entity.Name != "" {
+// 			log.Debugf("Data entry(%s): %d | %d | %d | %s", c.Id, e.Number, e.Length, e.Type, entity.ToString(e.Data))
+// 		} else {
+// 			log.Warnf("Data entry(%s): %d | %d | %d | No definition for this entry type", c.Id, e.Number, e.Length, e.Type)
+// 		}
+// 	} else {
+// 		log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+// 	}
+
+// 	return nil
+// }

@@ -33,7 +33,7 @@ type CommandError uint32
 
 const (
 	maxConnections = 100 // Maximum number of connected clients
-	streamBuffer   = 128 // Buffers for the stream channel
+	streamBuffer   = 256 // Buffers for the stream channel
 
 	CmdStart         Command = 1 // CmdStart for the start from entry TCP client command
 	CmdStartBookmark Command = 4 // CmdStartBookmark for the start from bookmark TCP client command
@@ -127,8 +127,8 @@ type ResultEntry struct {
 	errorStr   []byte
 }
 
-// New creates a new data stream server
-func New(port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamServer, error) {
+// NewServer creates a new data stream server
+func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:     port,
@@ -336,7 +336,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	if etype != EtBookmark && log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
 		entity := s.entriesDef[etype]
 		if entity.Name != "" {
-			log.Debugf("%s entry: %d | %d | %d | %d | %s", desc, e.Number, e.packetType, e.Length, e.Type, entity.toString(data))
+			log.Debugf("%s entry: %d | %d | %d | %d | %s", desc, e.Number, e.packetType, e.Length, e.Type, entity.ToString(data))
 		} else {
 			log.Warnf("%s entry: %d | %d | %d | %d | No definition for this entry type", desc, e.Number, e.packetType, e.Length, e.Type)
 		}
