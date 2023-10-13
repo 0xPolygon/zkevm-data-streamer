@@ -3,7 +3,7 @@ module github.com/0xPolygonHermez/zkevm-data-streamer
 go 1.19
 
 require (
-	github.com/ethereum/go-ethereum v1.13.2
+	github.com/ethereum/go-ethereum v1.13.3
 	github.com/hermeznetwork/tracerr v0.3.2
 	github.com/stretchr/testify v1.8.4
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
