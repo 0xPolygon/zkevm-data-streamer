@@ -670,7 +670,12 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 		}
 
 		// Bytes to forward until next data page
-		forward := pageDataSize - ((pos - pageHeaderSize) % pageDataSize)
+		var forward int64
+		if (pos-pageHeaderSize)%pageDataSize == 0 {
+			forward = 0
+		} else {
+			forward = pageDataSize - ((pos - pageHeaderSize) % pageDataSize)
+		}
 
 		// Check end of data pages condition
 		if pos+forward >= int64(f.writtenHead.TotalLength) {
