@@ -27,6 +27,9 @@ func NewRelay(server string, port uint16, streamType StreamType, fileName string
 		return r, err
 	}
 
+	// Set function to process entry
+	r.client.SetProcessEntryFunc(relayEntry, &r.server)
+
 	return r, nil
 }
 
@@ -51,6 +54,44 @@ func (r *StreamRelay) Start() error {
 	err = r.server.Start()
 	if err != nil {
 		log.Errorf("Error starting relay server: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// relayEntry relays the entry received as client to the clients connected to the server
+func relayEntry(e *FileEntry, c *StreamClient, s *StreamServer) error {
+	// Start atomic operation
+	err := s.StartAtomicOp()
+	if err != nil {
+		log.Errorf("Error starting atomic op: %v", err)
+		return err
+	}
+
+	// Add entry
+	if e.Type == EtBookmark {
+		_, err = s.AddStreamBookmark(e.Data)
+	} else {
+		_, err = s.AddStreamEntry(e.Type, e.Data)
+	}
+
+	// Check if error adding entry
+	if err != nil {
+		log.Errorf("Error adding entry: %v", err)
+
+		// Rollback atomic operation
+		err2 := s.RollbackAtomicOp()
+		if err2 != nil {
+			log.Errorf("Error rollbacking atomic op: %v", err2)
+		}
+		return err
+	}
+
+	// Commit atomic operation
+	err = s.CommitAtomicOp()
+	if err != nil {
+		log.Errorf("Error committing atomic op: %v", err)
 		return err
 	}
 

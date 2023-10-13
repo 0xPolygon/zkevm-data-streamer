@@ -47,6 +47,12 @@ func main() {
 			Usage:   "Run the client",
 			Action:  runClient,
 		},
+		{
+			Name:    "relay",
+			Aliases: []string{},
+			Usage:   "Run the relay",
+			Action:  runRelay,
+		},
 	}
 
 	err := app.Run(os.Args)
@@ -241,9 +247,17 @@ func runServer(*cli.Context) error {
 
 // runClient runs a local datastream client and tests its features
 func runClient(*cli.Context) error {
+	// Server parameter
+	var server string
+	if len(os.Args) > 2 {
+		server = os.Args[2]
+	} else {
+		server = "127.0.0.1:6900"
+		// server = "stream.internal.zkevm-test.net:6900"
+	}
+
 	// Create client
-	c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
-	// c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
+	c, err := datastreamer.NewClient(server, StSequencer)
 	if err != nil {
 		return err
 	}
@@ -267,6 +281,9 @@ func runClient(*cli.Context) error {
 		},
 	}
 	c.SetEntriesDef(entriesDefinition)
+
+	// Set process entry callback function
+	c.SetProcessEntryFunc(printEntryNum, nil)
 
 	// Start client (connect to the server)
 	err = c.Start()
@@ -313,18 +330,32 @@ func runClient(*cli.Context) error {
 	return nil
 }
 
-// func processReceivedEntry(e datastreamer.FileEntry, c datastreamer.StreamClient) error {
-// 	// Log data entry fields
-// 	if e.Type != datastreamer.EtBookmark && log.GetLevel() == zapcore.DebugLevel {
-// 		entity := c.GetEntryDef(e.Type)
-// 		if entity.Name != "" {
-// 			log.Debugf("Data entry(%s): %d | %d | %d | %s", c.Id, e.Number, e.Length, e.Type, entity.ToString(e.Data))
-// 		} else {
-// 			log.Warnf("Data entry(%s): %d | %d | %d | No definition for this entry type", c.Id, e.Number, e.Length, e.Type)
-// 		}
-// 	} else {
-// 		log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
-// 	}
+func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	fmt.Printf("CUSTOM PROCESS: Entry[%d] Type[%d] Length[%d]\n", e.Number, e.Type, e.Length)
+	return nil
+}
 
-// 	return nil
-// }
+// runRelay runs a local datastream relay
+func runRelay(*cli.Context) error {
+	log.Info(">> App begin")
+
+	// Create relay server
+	r, err := datastreamer.NewRelay("127.0.0.1:6900", 7900, StSequencer, "relay.bin", nil) // nolint:gomnd
+	if err != nil {
+		os.Exit(1)
+	}
+
+	// Start relay server
+	err = r.Start()
+	if err != nil {
+		log.Error(">> App error! Start")
+		return err
+	}
+
+	// Run until Ctl+C
+	interruptSignal := make(chan os.Signal, 1)
+	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
+	<-interruptSignal
+
+	return nil
+}

@@ -16,6 +16,9 @@ const (
 	entriesBuffer = 128 // Buffers for the entries channel
 )
 
+// ProcessEntryFunc type of the callback function to process the received entry
+type ProcessEntryFunc func(*FileEntry, *StreamClient, *StreamServer) error
+
 // StreamClient type to manage a data stream client
 type StreamClient struct {
 	server     string // Server address to connect IP:port
@@ -30,6 +33,9 @@ type StreamClient struct {
 	results chan ResultEntry // Channel to read command results
 	headers chan HeaderEntry // Channel to read header entries from the command Header
 	entries chan FileEntry   // Channel to read data entries from the streaming
+
+	processEntry ProcessEntryFunc // Callback function to process the entry
+	relayServer  *StreamServer    // Only used by the client on the stream relay server
 
 	entriesDef map[EntryType]EntityDefinition
 }
@@ -46,7 +52,13 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		results: make(chan ResultEntry, resultsBuffer),
 		headers: make(chan HeaderEntry, headersBuffer),
 		entries: make(chan FileEntry, entriesBuffer),
+
+		relayServer: nil,
 	}
+
+	// Set default callback function to process entry
+	c.SetProcessEntryFunc(PrintReceivedEntry, c.relayServer)
+
 	return c, nil
 }
 
@@ -386,25 +398,31 @@ func (c *StreamClient) getStreaming() {
 		e := <-c.entries
 
 		// Process the data entry
-		err := c.processEntry(e)
+		err := c.processEntry(&e, c, c.relayServer)
 		if err != nil {
 			log.Errorf("%s Error processing entry %d", c.Id, e.Number)
 		}
 	}
 }
 
-// processEntry processes data entry (DO YOUR CUSTOM BUSINESS LOGIC HERE)
-func (c *StreamClient) processEntry(e FileEntry) error {
+// SetProcessEntryFunc sets the callback function to process entry
+func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) {
+	c.processEntry = f
+	c.relayServer = s
+}
+
+// PrintReceivedEntry prints received entry (default callback function)
+func PrintReceivedEntry(e *FileEntry, c *StreamClient, s *StreamServer) error {
 	// Log data entry fields
 	if e.Type != EtBookmark && log.GetLevel() == zapcore.DebugLevel {
-		entity := c.entriesDef[e.Type]
+		entity := c.GetEntryDef(e.Type)
 		if entity.Name != "" {
-			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.Id, e.Number, e.packetType, e.Length, e.Type, entity.ToString(e.Data))
+			log.Debugf("Data entry(%s): %d | %d | %d | %s", c.Id, e.Number, e.Length, e.Type, entity.ToString(e.Data))
 		} else {
-			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.Id, e.Number, e.packetType, e.Length, e.Type)
+			log.Warnf("Data entry(%s): %d | %d | %d | No definition for this entry type", c.Id, e.Number, e.Length, e.Type)
 		}
 	} else {
-		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.Id, e.Number, e.packetType, e.Length, e.Type, len(e.Data))
+		log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
 	}
 
 	return nil

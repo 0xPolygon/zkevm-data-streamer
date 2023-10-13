@@ -1,3 +1,5 @@
+arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+
 # Check dependencies
 # Check for Go
 .PHONY: check-go
@@ -20,8 +22,12 @@ run-server: ## Runs the data streamer server
 	go run cmd/main.go server
 
 .PHONY: run-client
-run-client: ## Runs the data streamer client
-	go run cmd/main.go client
+run-client: ## Runs the data streamer client (Usage: run-client <server>) eg. 127.0.0.1:6900
+	go run cmd/main.go client $(arguments)
+
+.PHONY: run-relay
+run-relay: ## Runs the data streamer relay
+	go run cmd/main.go relay
 
 .PHONY: test
 test:
