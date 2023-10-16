@@ -249,7 +249,7 @@ func runServer(*cli.Context) error {
 func runClient(*cli.Context) error {
 	// Server parameter
 	var server string
-	if len(os.Args) > 2 {
+	if len(os.Args) > 2 { // nolint:gomnd
 		server = os.Args[2]
 	} else {
 		server = "127.0.0.1:6900"
@@ -339,8 +339,17 @@ func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *d
 func runRelay(*cli.Context) error {
 	log.Info(">> App begin")
 
+	// Server parameter
+	var server string
+	if len(os.Args) > 2 { // nolint:gomnd
+		server = os.Args[2]
+	} else {
+		server = "127.0.0.1:6900"
+		// server = "stream.internal.zkevm-test.net:6900"
+	}
+
 	// Create relay server
-	r, err := datastreamer.NewRelay("127.0.0.1:6900", 7900, StSequencer, "relay.bin", nil) // nolint:gomnd
+	r, err := datastreamer.NewRelay(server, 7900, StSequencer, "relay.bin", nil) // nolint:gomnd
 	if err != nil {
 		os.Exit(1)
 	}
