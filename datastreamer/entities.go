@@ -31,7 +31,7 @@ func (e EntityDefinition) toString(entity []byte) string {
 		value := ""
 
 		if val.Type().Field(i).Type.Kind() == reflect.Slice {
-			value = common.Bytes2Hex(entity[accumulatedLength:])
+			value = "0x" + common.Bytes2Hex(entity[accumulatedLength:])
 		} else if val.Type().Field(i).Type.Kind() == reflect.Uint8 {
 			value = fmt.Sprintf("%v", entity[accumulatedLength])
 		} else if val.Type().Field(i).Type.Kind() == reflect.Uint32 {
