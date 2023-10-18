@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -28,24 +30,73 @@ func main() {
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
-		Level:       "info",
+		Level:       "debug",
 		Outputs:     []string{"stdout"},
 	})
 
 	app := cli.NewApp()
+	app.Usage = "Run a datastream server/client/relay demo cli app"
 
 	app.Commands = []*cli.Command{
 		{
 			Name:    "server",
-			Aliases: []string{"v"},
-			Usage:   "Run the server",
-			Action:  runServer,
+			Aliases: []string{},
+			Usage:   "Run datastream server",
+			Flags: []cli.Flag{
+				&cli.Uint64Flag{
+					Name:        "port",
+					Usage:       "exposed port for clients to connect",
+					Value:       6900, // nolint:gomnd
+					DefaultText: "6900",
+				},
+				&cli.StringFlag{
+					Name:        "file",
+					Usage:       "datastream data file name",
+					Value:       "datastream.bin",
+					DefaultText: "datastream.bin",
+				},
+			},
+			Action: runServer,
 		},
 		{
 			Name:    "client",
 			Aliases: []string{},
-			Usage:   "Run the client",
-			Action:  runClient,
+			Usage:   "Run datastream client",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        "server",
+					Usage:       "datastream server address to connect",
+					Value:       "127.0.0.1:6900",
+					DefaultText: "127.0.0.1:6900",
+				},
+			},
+			Action: runClient,
+		},
+		{
+			Name:    "relay",
+			Aliases: []string{},
+			Usage:   "Run datastream relay",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        "server",
+					Usage:       "datastream server address to connect",
+					Value:       "127.0.0.1:6900",
+					DefaultText: "127.0.0.1:6900",
+				},
+				&cli.Uint64Flag{
+					Name:        "port",
+					Usage:       "exposed port for clients to connect",
+					Value:       7900, // nolint:gomnd
+					DefaultText: "7900",
+				},
+				&cli.StringFlag{
+					Name:        "file",
+					Usage:       "relay data file name",
+					Value:       "datarelay.bin",
+					DefaultText: "datarelay.bin",
+				},
+			},
+			Action: runRelay,
 		},
 	}
 
@@ -57,16 +108,23 @@ func main() {
 }
 
 // runServer runs a local datastream server and tests its features
-func runServer(*cli.Context) error {
+func runServer(ctx *cli.Context) error {
 	log.Info(">> App begin")
 
+	// Parameters
+	file := ctx.String("file")
+	port := ctx.Uint64("port")
+	if file == "" || port <= 0 {
+		return errors.New("bad/missing parameters")
+	}
+
 	// Create stream server
-	s, err := datastreamer.New(6900, StSequencer, "datastream.bin", nil) // nolint:gomnd
+	s, err := datastreamer.NewServer(uint16(port), StSequencer, file, nil)
 	if err != nil {
 		os.Exit(1)
 	}
 
-	// Set data entries definition
+	// Set data entries definition (optional)
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
 		EtL2BlockStart: {
 			Name:       "L2BlockStart",
@@ -93,8 +151,8 @@ func runServer(*cli.Context) error {
 		return err
 	}
 
-	// s.BookmarkPrintDump()
-	// time.Sleep(5 * time.Second) // nolint:gomnd
+	// Pause for testing purpose
+	time.Sleep(5 * time.Second) // nolint:gomnd
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
@@ -121,32 +179,19 @@ func runServer(*cli.Context) error {
 		StateRoot: common.Hash{},
 	}
 	dataBlockEnd := l2BlockEnd.Encode()
+	// ------------------------------------------------------------
 
 	imark := s.GetHeader().TotalEntries
-
-	// bookmark := []byte("bookmark4800") // Bookmark testing
 
 	end := make(chan uint8)
 
 	go func(chan uint8) {
+		var numOpersLoop uint64 = 10000000 // nolint:gomnd
+
+		var testRollback bool = false
 		var latestRollback uint64 = 0
 
 		rand.Seed(time.Now().UnixNano())
-
-		// Get Bookmark
-		// bookEntry, err := s.GetBookmark(bookmark)
-		// if err != nil {
-		// 	log.Errorf(">> GetBookmark test: error %v", err)
-		// } else {
-		// 	log.Infof(">> GetBookmark test: entry[%d]", bookEntry)
-		// }
-
-		// eventEntry, err := s.GetFirstEventAfterBookmark(bookmark)
-		// if err != nil {
-		// 	log.Errorf(">> GetFirstEventAfterBookmark test: error %v", err)
-		// } else {
-		// 	log.Infof(">> GetFirstEventAfterBookmark test: entry[%d] length[%d]", eventEntry.EntryNum, eventEntry.Length)
-		// }
 
 		// Get Header
 		header := s.GetHeader()
@@ -162,8 +207,7 @@ func runServer(*cli.Context) error {
 			}
 		}
 
-		// for n := 1; n <= 10000; n++ {
-		for {
+		for n := 1; n <= int(numOpersLoop); n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
 			if err != nil {
@@ -173,8 +217,10 @@ func runServer(*cli.Context) error {
 
 			// Add stream entries:
 			// Bookmark
-			bookmark := fmt.Sprintf("bookmark%d", imark)
-			_, err := s.AddStreamBookmark([]byte(bookmark))
+			bookmark := []byte{9} // nolint:gomnd
+			bookmark = binary.LittleEndian.AppendUint64(bookmark, imark)
+
+			_, err := s.AddStreamBookmark(bookmark)
 			if err != nil {
 				log.Errorf(">> App error! AddStreamBookmark: %v", err)
 			}
@@ -203,7 +249,7 @@ func runServer(*cli.Context) error {
 
 			imark = entryBlockEnd + 1
 
-			if entryBlockStart%10 != 0 || latestRollback == entryBlockStart {
+			if !testRollback || entryBlockStart%10 != 0 || latestRollback == entryBlockStart {
 				// Commit atomic operation
 				err = s.CommitAtomicOp()
 				if err != nil {
@@ -219,20 +265,14 @@ func runServer(*cli.Context) error {
 				latestRollback = entryBlockStart
 			}
 
+			// Pause for testing purpose
 			// time.Sleep(5000 * time.Millisecond) // nolint:gomnd
 		}
-		// end <- 0
+		end <- 0
 	}(end)
-	// ------------------------------------------------------------
 
-	// Wait for finished
-	// <-end
-
-	// Wait for ctl+c
-	log.Info(">> Press Control+C to finish...")
-	interruptSignal := make(chan os.Signal, 1)
-	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
-	<-interruptSignal
+	// Wait for loop to end
+	<-end
 
 	log.Info(">> App end")
 
@@ -240,15 +280,20 @@ func runServer(*cli.Context) error {
 }
 
 // runClient runs a local datastream client and tests its features
-func runClient(*cli.Context) error {
+func runClient(ctx *cli.Context) error {
+	// Parameters
+	server := ctx.String("server")
+	if server == "" {
+		return errors.New("bad/missing parameters")
+	}
+
 	// Create client
-	// c, err := datastreamer.NewClient("127.0.0.1:6900", StSequencer)
-	c, err := datastreamer.NewClient("stream.internal.zkevm-test.net:6900", StSequencer)
+	c, err := datastreamer.NewClient(server, StSequencer)
 	if err != nil {
 		return err
 	}
 
-	// Set data entries definition
+	// Set data entries definition (optional)
 	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
 		EtL2BlockStart: {
 			Name:       "L2BlockStart",
@@ -268,6 +313,9 @@ func runClient(*cli.Context) error {
 	}
 	c.SetEntriesDef(entriesDefinition)
 
+	// Set process entry callback function
+	c.SetProcessEntryFunc(printEntryNum, nil)
+
 	// Start client (connect to the server)
 	err = c.Start()
 	if err != nil {
@@ -281,7 +329,9 @@ func runClient(*cli.Context) error {
 	}
 
 	// Command StartBookmark: Sync and start streaming receive from bookmark
-	// c.FromBookmark = []byte("bookmark4800")
+	// bookmark := []byte{9}                                     // nolint:gomnd
+	// bookmark = binary.LittleEndian.AppendUint64(bookmark, 10) // nolint:gomnd
+	// c.FromBookmark = bookmark
 	// err = c.ExecCommand(datastreamer.CmdStartBookmark)
 	// if err != nil {
 	// 	return err
@@ -310,5 +360,44 @@ func runClient(*cli.Context) error {
 	}
 
 	log.Info("Client stopped")
+	return nil
+}
+
+// printEntryNum prints basic data of the entry
+func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	fmt.Printf("CUSTOM PROCESS: Entry[%d] Type[%d] Length[%d]\n", e.Number, e.Type, e.Length)
+	return nil
+}
+
+// runRelay runs a local datastream relay
+func runRelay(ctx *cli.Context) error {
+	log.Info(">> App begin")
+
+	// Parameters
+	server := ctx.String("server")
+	port := ctx.Uint64("port")
+	file := ctx.String("file")
+	if server == "" || file == "" || port <= 0 {
+		return errors.New("bad/missing parameters")
+	}
+
+	// Create relay server
+	r, err := datastreamer.NewRelay(server, uint16(port), StSequencer, file, nil)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	// Start relay server
+	err = r.Start()
+	if err != nil {
+		log.Error(">> App error! Start")
+		return err
+	}
+
+	// Run until Ctl+C
+	interruptSignal := make(chan os.Signal, 1)
+	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
+	<-interruptSignal
+
 	return nil
 }

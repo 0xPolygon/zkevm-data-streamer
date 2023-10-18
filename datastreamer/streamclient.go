@@ -16,12 +16,15 @@ const (
 	entriesBuffer = 128 // Buffers for the entries channel
 )
 
+// ProcessEntryFunc type of the callback function to process the received entry
+type ProcessEntryFunc func(*FileEntry, *StreamClient, *StreamServer) error
+
 // StreamClient type to manage a data stream client
 type StreamClient struct {
 	server     string // Server address to connect IP:port
 	streamType StreamType
 	conn       net.Conn
-	id         string // Client id
+	Id         string // Client id
 
 	FromEntry    uint64      // Set starting entry number for the Start command
 	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
@@ -30,6 +33,9 @@ type StreamClient struct {
 	results chan ResultEntry // Channel to read command results
 	headers chan HeaderEntry // Channel to read header entries from the command Header
 	entries chan FileEntry   // Channel to read data entries from the streaming
+
+	processEntry ProcessEntryFunc // Callback function to process the entry
+	relayServer  *StreamServer    // Only used by the client on the stream relay server
 
 	entriesDef map[EntryType]EntityDefinition
 }
@@ -40,13 +46,19 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 	c := StreamClient{
 		server:     server,
 		streamType: streamType,
-		id:         "",
+		Id:         "",
 		FromEntry:  0,
 
 		results: make(chan ResultEntry, resultsBuffer),
 		headers: make(chan HeaderEntry, headersBuffer),
 		entries: make(chan FileEntry, entriesBuffer),
+
+		relayServer: nil,
 	}
+
+	// Set default callback function to process entry
+	c.SetProcessEntryFunc(PrintReceivedEntry, c.relayServer)
+
 	return c, nil
 }
 
@@ -60,8 +72,8 @@ func (c *StreamClient) Start() error {
 		return err
 	}
 
-	c.id = c.conn.LocalAddr().String()
-	log.Infof("%s Connected to server: %s", c.id, c.server)
+	c.Id = c.conn.LocalAddr().String()
+	log.Infof("%s Connected to server: %s", c.Id, c.server)
 
 	// Goroutine to read from the server all entry types
 	go c.readEntries()
@@ -77,13 +89,18 @@ func (c *StreamClient) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) 
 	c.entriesDef = entriesDef
 }
 
+// GetEntryDef returns the definition of an entry type
+func (c *StreamClient) GetEntryDef(etype EntryType) EntityDefinition {
+	return c.entriesDef[etype]
+}
+
 // ExecCommand executes a valid client TCP command
 func (c *StreamClient) ExecCommand(cmd Command) error {
-	log.Infof("%s Executing command %d[%s]...", c.id, cmd, StrCommand[cmd])
+	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
 
 	// Check valid command
 	if cmd != CmdStart && cmd != CmdStartBookmark && cmd != CmdHeader && cmd != CmdStop {
-		log.Errorf("%s Invalid command %d", c.id, cmd)
+		log.Errorf("%s Invalid command %d", c.Id, cmd)
 		return errors.New("invalid command")
 	}
 
@@ -100,14 +117,14 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 
 	// Send the Start and StartBookmark parameters
 	if cmd == CmdStart {
-		log.Infof("%s ...from entry %d", c.id, c.FromEntry)
+		log.Infof("%s ...from entry %d", c.Id, c.FromEntry)
 		// Send starting/from entry number
 		err = writeFullUint64(c.FromEntry, c.conn)
 		if err != nil {
 			return err
 		}
 	} else if cmd == CmdStartBookmark {
-		log.Infof("%s ...from bookmark [%v]", c.id, c.FromBookmark)
+		log.Infof("%s ...from bookmark [%v]", c.Id, c.FromBookmark)
 		// Send starting/from bookmark length
 		err = writeFullUint32(uint32(len(c.FromBookmark)), c.conn)
 		if err != nil {
@@ -195,9 +212,9 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.Id)
 		} else {
-			log.Errorf("%s Error reading from server: %v", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.Id, err)
 		}
 		return d, err
 	}
@@ -207,7 +224,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	// Read variable field (data)
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeFileEntry {
-		log.Errorf("%s Error reading data entry", c.id)
+		log.Errorf("%s Error reading data entry", c.Id)
 		return d, errors.New("error reading data entry")
 	}
 
@@ -215,9 +232,9 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.Id)
 		} else {
-			log.Errorf("%s Error reading from server: %v", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.Id, err)
 		}
 		return d, err
 	}
@@ -269,9 +286,9 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
 		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.Id)
 		} else {
-			log.Errorf("%s Error reading from server: %v", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.Id, err)
 		}
 		return e, err
 	}
@@ -281,7 +298,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	// Read variable field (errStr)
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeResultEntry {
-		log.Errorf("%s Error reading result entry", c.id)
+		log.Errorf("%s Error reading result entry", c.Id)
 		return e, errors.New("error reading result entry")
 	}
 
@@ -289,9 +306,9 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	_, err = io.ReadFull(c.conn, bufferAux)
 	if err != nil {
 		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.id)
+			log.Warnf("%s Server close connection", c.Id)
 		} else {
-			log.Errorf("%s Error reading from server: %v", c.id, err)
+			log.Errorf("%s Error reading from server: %v", c.Id, err)
 		}
 		return e, err
 	}
@@ -316,9 +333,9 @@ func (c *StreamClient) readEntries() {
 		_, err := io.ReadFull(c.conn, packet)
 		if err != nil {
 			if err == io.EOF {
-				log.Warnf("%s Server close connection", c.id)
+				log.Warnf("%s Server close connection", c.Id)
 			} else {
-				log.Errorf("%s Error reading from server: %v", c.id, err)
+				log.Errorf("%s Error reading from server: %v", c.Id, err)
 			}
 			return
 		}
@@ -354,7 +371,7 @@ func (c *StreamClient) readEntries() {
 
 		default:
 			// Unknown type
-			log.Warnf("%s Unknown packet type %d", c.id, packet[0])
+			log.Warnf("%s Unknown packet type %d", c.Id, packet[0])
 			continue
 		}
 	}
@@ -364,14 +381,14 @@ func (c *StreamClient) readEntries() {
 func (c *StreamClient) getResult(cmd Command) ResultEntry {
 	// Get result entry
 	r := <-c.results
-	log.Infof("%s Result %d[%s] received for command %d[%s]", c.id, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
+	log.Infof("%s Result %d[%s] received for command %d[%s]", c.Id, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
 	return r
 }
 
 // getHeader consumes a header entry
 func (c *StreamClient) getHeader() HeaderEntry {
 	h := <-c.headers
-	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d]", c.id, h.TotalEntries, h.TotalLength)
+	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d]", c.Id, h.TotalEntries, h.TotalLength)
 	return h
 }
 
@@ -381,25 +398,31 @@ func (c *StreamClient) getStreaming() {
 		e := <-c.entries
 
 		// Process the data entry
-		err := c.processEntry(e)
+		err := c.processEntry(&e, c, c.relayServer)
 		if err != nil {
-			log.Errorf("%s Error processing entry %d", c.id, e.Number)
+			log.Errorf("%s Error processing entry %d", c.Id, e.Number)
 		}
 	}
 }
 
-// processEntry processes data entry (DO YOUR CUSTOM BUSINESS LOGIC HERE)
-func (c *StreamClient) processEntry(e FileEntry) error {
+// SetProcessEntryFunc sets the callback function to process entry
+func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) {
+	c.processEntry = f
+	c.relayServer = s
+}
+
+// PrintReceivedEntry prints received entry (default callback function)
+func PrintReceivedEntry(e *FileEntry, c *StreamClient, s *StreamServer) error {
 	// Log data entry fields
 	if e.Type != EtBookmark && log.GetLevel() == zapcore.DebugLevel {
-		entity := c.entriesDef[e.Type]
+		entity := c.GetEntryDef(e.Type)
 		if entity.Name != "" {
-			log.Debugf("Data entry(%s): %d | %d | %d | %d | %s", c.id, e.Number, e.packetType, e.Length, e.Type, entity.toString(e.Data))
+			log.Debugf("Data entry(%s): %d | %d | %d | %s", c.Id, e.Number, e.Length, e.Type, entity.ToString(e.Data))
 		} else {
-			log.Warnf("Data entry(%s): %d | %d | %d | %d | No definition for this entry type", c.id, e.Number, e.packetType, e.Length, e.Type)
+			log.Warnf("Data entry(%s): %d | %d | %d | No definition for this entry type", c.Id, e.Number, e.Length, e.Type)
 		}
 	} else {
-		log.Infof("Data entry(%s): %d | %d | %d | %d | %d", c.id, e.Number, e.packetType, e.Length, e.Type, len(e.Data))
+		log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
 	}
 
 	return nil

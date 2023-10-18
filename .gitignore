@@ -8,6 +8,7 @@
 *.so
 *.dylib
 main
+dsdemo
 
 # Test binary, built with `go test -c`
 *.test
