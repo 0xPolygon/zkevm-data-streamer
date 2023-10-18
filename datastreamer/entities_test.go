@@ -53,10 +53,10 @@ func TestEntityToString(t *testing.T) {
 	}
 
 	stringValue := entityDef.ToString(l2Transaction.Encode())
-	expected := fmt.Sprintf("EffectiveGasPricePercentage: %d, IsValid: %d, EncodedLength: %d, AnotherField: %d, Encoded: %s", l2Transaction.EffectiveGasPricePercentage, l2Transaction.IsValid, l2Transaction.EncodedLength, l2Transaction.AnotherField, common.Bytes2Hex(l2Transaction.Encoded))
+	expected := fmt.Sprintf("EffectiveGasPricePercentage: %d, IsValid: %d, EncodedLength: %d, AnotherField: %d, Encoded: %s", l2Transaction.EffectiveGasPricePercentage, l2Transaction.IsValid, l2Transaction.EncodedLength, l2Transaction.AnotherField, "0x"+common.Bytes2Hex(l2Transaction.Encoded))
 	assert.Equal(t, expected, stringValue)
 
 	stringValue = entityDef.ToString(l2Transaction2.Encode())
-	expected = fmt.Sprintf("EffectiveGasPricePercentage: %d, IsValid: %d, EncodedLength: %d, AnotherField: %d, Encoded: %s", l2Transaction2.EffectiveGasPricePercentage, l2Transaction2.IsValid, l2Transaction2.EncodedLength, l2Transaction2.AnotherField, common.Bytes2Hex(l2Transaction2.Encoded))
+	expected = fmt.Sprintf("EffectiveGasPricePercentage: %d, IsValid: %d, EncodedLength: %d, AnotherField: %d, Encoded: %s", l2Transaction2.EffectiveGasPricePercentage, l2Transaction2.IsValid, l2Transaction2.EncodedLength, l2Transaction2.AnotherField, "0x"+common.Bytes2Hex(l2Transaction2.Encoded))
 	assert.Equal(t, expected, stringValue)
 }
