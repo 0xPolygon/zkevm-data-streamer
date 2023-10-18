@@ -9,7 +9,7 @@ Go implementation of a generic fast data streamer library.
 ## GENERAL DIAGRAM
 Description of the diagram elements:
 
-- **Sequencer**: uses the data streamer library through the API to send L2 blocks and L2 transactions to stream. It's a use case of the datastreamer component.
+- **Sequencer**: uses the data streamer library through the API to send L2 blocks and L2 transactions to the stream. It's an use case of the datastreamer component.
 
 - **Data Streamer**: creates the stream server, it manages the stream file and allows stream clients to connect using a TCP socket. For such stream clients, it offers a series of commands via the TCP port.
 
