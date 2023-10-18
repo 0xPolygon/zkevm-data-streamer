@@ -17,17 +17,9 @@ install-linter: ## Installs the linter
 lint: ## Runs the linter
 	export "GOROOT=$$(go env GOROOT)" && $$(go env GOPATH)/bin/golangci-lint run
 
-.PHONY: run-server
-run-server: ## Runs the data streamer server
-	go run cmd/main.go server $(arguments)
-
-.PHONY: run-client
-run-client: ## Runs the data streamer client
-	go run cmd/main.go client $(arguments)
-
-.PHONY: run-relay
-run-relay: ## Runs the data streamer relay
-	go run cmd/main.go relay $(arguments)
+.PHONY: build
+build: ## Builds datastream cli app (server, client, relay)
+	go build -o dsdemo cmd/main.go
 
 .PHONY: test
 test:
