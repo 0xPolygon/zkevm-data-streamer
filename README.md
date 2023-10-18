@@ -108,7 +108,7 @@ Remember that all these TCP commands firstly return a response in the following 
 Bookmarks make possible to the clients to sync the streaming from a business logic point.
 - No need to store the latest `stream entry number` received.
 - Using the API, bookmarks to business logic data are added in the send data to stream implementation.
-- e.g. zkEVM Sequencer streaming: each L2 block number has its own bookmark. Client can request to start the stream from a L2 block number.
+- e.g. zkEVM Sequencer streaming: each L2 block number has its own bookmark. Clients can request to start the stream from a L2 block number.
 
 ## STREAM RELAY
 Stream relay server included in the datastream library allows scaling the number of stream connected clients.
