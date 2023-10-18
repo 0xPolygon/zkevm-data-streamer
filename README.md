@@ -47,7 +47,7 @@ At the beginning of the file there are the following magic bytes (file signature
 >u64 Number // Entry number (sequential starting with 0)  
 >u8[] data  
 
-NOTE: If an entry do not fits in the remaining page space, the entry will be stored in the next page.
+NOTE: If an entry does not fit in the remaining page space, the entry will be stored in the next page.
 
 ### File diagram
 ![Alt](doc/data-streamer-bin-file.drawio.png)
