@@ -19,14 +19,14 @@ lint: ## Runs the linter
 
 .PHONY: run-server
 run-server: ## Runs the data streamer server
-	go run cmd/main.go server
+	go run cmd/main.go server $(arguments)
 
 .PHONY: run-client
-run-client: ## Runs the data streamer client (Usage: run-client <server>) default 127.0.0.1:6900
+run-client: ## Runs the data streamer client
 	go run cmd/main.go client $(arguments)
 
 .PHONY: run-relay
-run-relay: ## Runs the data streamer relay (Usage: run-relay <server>) default 127.0.0.1:6900
+run-relay: ## Runs the data streamer relay
 	go run cmd/main.go relay $(arguments)
 
 .PHONY: test
