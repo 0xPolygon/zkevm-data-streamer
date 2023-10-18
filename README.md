@@ -89,7 +89,7 @@ Command format sent by the client:
 If not started terminates the connection.
 
 ### Header 
-Gets the current stream file header (`HeaderEntry` format defined in the [STREAM FILE](#stream-file) section), so stream client can know the total number of entries and the size of the stream file.
+Gets the current stream file header (`HeaderEntry` format defined in the [STREAM FILE](#stream-file) section), so stream clients can know the total number of entries and the size of the stream file.
 
 Command format sent by the client:
 >u64 command = 3  
