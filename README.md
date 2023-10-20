@@ -135,6 +135,81 @@ Stream relay server included in the datastream library allows scaling the number
 - GetBookmark(u8[] bookmark) -> returns u64 entryNumber
 - GetFirstEventAfterBookmark(u8[] bookmark) -> returns struct FileEntry
 
+## DATASTREAM CLI DEMO APP
+Build the binary datastream demo app (`dsdemo`):
+```
+$ make build
+```
+Run the app without parameters to see the available commands:
+```
+$ ./dsdemo
+NAME:
+   dsdemo - Run a datastream server/client/relay demo cli app
+
+USAGE:
+   dsdemo [global options] command [command options] [arguments...]
+
+COMMANDS:
+   server   Run datastream server
+   client   Run datastream client
+   relay    Run datastream relay
+   help, h  Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --help, -h  show help
+```
+### SERVER
+Use the help option to check available parameters for the server command:
+```
+$ ./dsdemo help server
+NAME:
+   dsdemo server - Run datastream server
+
+USAGE:
+   dsdemo server [command options] [arguments...]
+
+OPTIONS:
+   --port value   exposed port for clients to connect (default: 6900)
+   --file value   datastream data file name (*.bin) (default: datastream.bin)
+   --log value    log level (debug|info|warn|error) (default: info)
+   --sleep value  initial sleep and sleep between atomic operations in ms (default: 0)
+   --opers value  number of atomic operations (server will terminate after them) (default: 1000000)
+   --help, -h     show help
+```
+Run a datastream server with default parameters (port: `6900`, file: `datastream.bin`, log: `info`):
+```
+$ ./dsdemo server
+```
+Or run a datastream server with custom parameters:
+```
+$ ./dsdemo server --port 6969 --file seqstream.bin --log warn
+```
+### CLIENT
+Use the help option to check available parameters for the client command:
+```
+$ ./dsdemo help client
+NAME:
+   dsdemo client - Run datastream client
+
+USAGE:
+   dsdemo client [command options] [arguments...]
+
+OPTIONS:
+   --server value        datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
+   --from value          entry number to start the sync from (latest|0..N) (default: latest)
+   --frombookmark value  bookmark to start the sync from (0..N) (has preference over --from parameter)
+   --log value           log level (debug|info|warn|error) (default: info)
+   --help, -h            show help
+```
+Run a datastream client with default parameters (server: `127.0.0.1:6900`, from: `latest`, log: `info`)
+```
+$ ./dsdemo client
+```
+Or run a datastream client with custom parameters:
+```
+$ ./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
+```
+
 ## USE CASE: zkEVM SEQUENCER ENTRIES
 Sequencer data stream service to stream L2 blocks and L2 txs
 
@@ -163,4 +238,14 @@ List of events (entry types):
 - Entry data:  
 >u64   blockL2Num  
 >u256  l2BlockHash  
+>u256  stateRoot  
+
+### Update GER
+- Entry type = 4
+- Entry data:  
+>u64 batchNum  
+>u64 timestamp  
+>u8[32] globalExitRoot  
+>u8[20] coinbase  
+>u16 forkId  
 >u256  stateRoot  

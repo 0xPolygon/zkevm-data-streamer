@@ -147,6 +147,12 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 		stream: make(chan streamAO, streamBuffer),
 	}
 
+	// Add file extension if not present
+	ind := strings.IndexRune(s.fileName, '.')
+	if ind == -1 {
+		s.fileName = s.fileName + ".bin"
+	}
+
 	// Initialize the logger
 	if cfg != nil {
 		log.Init(*cfg)
