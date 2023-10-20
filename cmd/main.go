@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"math/rand"
 	"os"
 	"os/signal"
 	"reflect"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -51,9 +51,27 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:        "file",
-					Usage:       "datastream data file name",
+					Usage:       "datastream data file name (*.bin)",
 					Value:       "datastream.bin",
 					DefaultText: "datastream.bin",
+				},
+				&cli.StringFlag{
+					Name:        "log",
+					Usage:       "log level (debug|info|warn|error)",
+					Value:       "info",
+					DefaultText: "info",
+				},
+				&cli.Uint64Flag{
+					Name:        "sleep",
+					Usage:       "initial sleep and sleep between atomic operations in ms",
+					Value:       0, // nolint:gomnd
+					DefaultText: "0",
+				},
+				&cli.Uint64Flag{
+					Name:        "opers",
+					Usage:       "number of atomic operations (server will terminate after them)",
+					Value:       1000000, // nolint:gomnd
+					DefaultText: "1000000",
 				},
 			},
 			Action: runServer,
@@ -65,9 +83,26 @@ func main() {
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:        "server",
-					Usage:       "datastream server address to connect",
+					Usage:       "datastream server address to connect (IP:port)",
 					Value:       "127.0.0.1:6900",
 					DefaultText: "127.0.0.1:6900",
+				},
+				&cli.StringFlag{
+					Name:        "from",
+					Usage:       "entry number to start the sync from (latest|0..N)",
+					Value:       "latest",
+					DefaultText: "latest",
+				},
+				&cli.StringFlag{
+					Name:  "frombookmark",
+					Usage: "bookmark to start the sync from (0..N) (has preference over --from parameter)",
+					Value: "none",
+				},
+				&cli.StringFlag{
+					Name:        "log",
+					Usage:       "log level (debug|info|warn|error)",
+					Value:       "info",
+					DefaultText: "info",
 				},
 			},
 			Action: runClient,
@@ -79,7 +114,7 @@ func main() {
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:        "server",
-					Usage:       "datastream server address to connect",
+					Usage:       "datastream server address to connect (IP:port)",
 					Value:       "127.0.0.1:6900",
 					DefaultText: "127.0.0.1:6900",
 				},
@@ -91,9 +126,15 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:        "file",
-					Usage:       "relay data file name",
+					Usage:       "relay data file name (*.bin)",
 					Value:       "datarelay.bin",
 					DefaultText: "datarelay.bin",
+				},
+				&cli.StringFlag{
+					Name:        "log",
+					Usage:       "log level (debug|info|warn|error)",
+					Value:       "info",
+					DefaultText: "info",
 				},
 			},
 			Action: runRelay,
@@ -109,11 +150,21 @@ func main() {
 
 // runServer runs a local datastream server and tests its features
 func runServer(ctx *cli.Context) error {
+	// Set log level
+	logLevel := ctx.String("log")
+	log.Init(log.Config{
+		Environment: "development",
+		Level:       logLevel,
+		Outputs:     []string{"stdout"},
+	})
+
 	log.Info(">> App begin")
 
 	// Parameters
 	file := ctx.String("file")
 	port := ctx.Uint64("port")
+	sleep := ctx.Uint64("sleep")
+	numOpersLoop := ctx.Uint64("opers")
 	if file == "" || port <= 0 {
 		return errors.New("bad/missing parameters")
 	}
@@ -152,7 +203,7 @@ func runServer(ctx *cli.Context) error {
 	}
 
 	// Pause for testing purpose
-	time.Sleep(5 * time.Second) // nolint:gomnd
+	time.Sleep(time.Duration(sleep) * time.Millisecond)
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
@@ -186,8 +237,6 @@ func runServer(ctx *cli.Context) error {
 	end := make(chan uint8)
 
 	go func(chan uint8) {
-		var numOpersLoop uint64 = 10000000 // nolint:gomnd
-
 		var testRollback bool = false
 		var latestRollback uint64 = 0
 
@@ -217,7 +266,7 @@ func runServer(ctx *cli.Context) error {
 
 			// Add stream entries:
 			// Bookmark
-			bookmark := []byte{9} // nolint:gomnd
+			bookmark := []byte{0} // nolint:gomnd
 			bookmark = binary.LittleEndian.AppendUint64(bookmark, imark)
 
 			_, err := s.AddStreamBookmark(bookmark)
@@ -266,7 +315,7 @@ func runServer(ctx *cli.Context) error {
 			}
 
 			// Pause for testing purpose
-			// time.Sleep(5000 * time.Millisecond) // nolint:gomnd
+			time.Sleep(time.Duration(sleep) * time.Millisecond)
 		}
 		end <- 0
 	}(end)
@@ -281,9 +330,19 @@ func runServer(ctx *cli.Context) error {
 
 // runClient runs a local datastream client and tests its features
 func runClient(ctx *cli.Context) error {
+	// Set log level
+	logLevel := ctx.String("log")
+	log.Init(log.Config{
+		Environment: "development",
+		Level:       logLevel,
+		Outputs:     []string{"stdout"},
+	})
+
 	// Parameters
 	server := ctx.String("server")
-	if server == "" {
+	from := ctx.String("from")
+	fromBookmark := ctx.String("frombookmark")
+	if server == "" || (from == "" && fromBookmark == "") {
 		return errors.New("bad/missing parameters")
 	}
 
@@ -314,7 +373,7 @@ func runClient(ctx *cli.Context) error {
 	c.SetEntriesDef(entriesDefinition)
 
 	// Set process entry callback function
-	c.SetProcessEntryFunc(printEntryNum, nil)
+	// c.SetProcessEntryFunc(printEntryNum, nil)
 
 	// Start client (connect to the server)
 	err = c.Start()
@@ -328,27 +387,37 @@ func runClient(ctx *cli.Context) error {
 		return err
 	}
 
-	// Command StartBookmark: Sync and start streaming receive from bookmark
-	// bookmark := []byte{9}                                     // nolint:gomnd
-	// bookmark = binary.LittleEndian.AppendUint64(bookmark, 10) // nolint:gomnd
-	// c.FromBookmark = bookmark
-	// err = c.ExecCommand(datastreamer.CmdStartBookmark)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// Command start: Sync and start streaming receive from entry number
-	if c.Header.TotalEntries > 10 { // nolint:gomnd
-		c.FromEntry = c.Header.TotalEntries - 10 // nolint:gomnd
+	if fromBookmark != "none" {
+		// Command StartBookmark: Sync and start streaming receive from bookmark
+		fromBookNum, err := strconv.Atoi(fromBookmark)
+		if err != nil {
+			return err
+		}
+		bookmark := []byte{0} // nolint:gomnd
+		bookmark = binary.LittleEndian.AppendUint64(bookmark, uint64(fromBookNum))
+		c.FromBookmark = bookmark
+		err = c.ExecCommand(datastreamer.CmdStartBookmark)
+		if err != nil {
+			return err
+		}
 	} else {
-		c.FromEntry = 0
-	}
-	err = c.ExecCommand(datastreamer.CmdStart)
-	if err != nil {
-		return err
+		// Command start: Sync and start streaming receive from entry number
+		if from == "latest" { // nolint:gomnd
+			c.FromEntry = c.Header.TotalEntries
+		} else {
+			fromNum, err := strconv.Atoi(from)
+			if err != nil {
+				return err
+			}
+			c.FromEntry = uint64(fromNum)
+		}
+		err = c.ExecCommand(datastreamer.CmdStart)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Run until Ctl+C
+	// After the initial sync, run until Ctl+C
 	interruptSignal := make(chan os.Signal, 1)
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 	<-interruptSignal
@@ -364,13 +433,21 @@ func runClient(ctx *cli.Context) error {
 }
 
 // printEntryNum prints basic data of the entry
-func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
-	fmt.Printf("CUSTOM PROCESS: Entry[%d] Type[%d] Length[%d]\n", e.Number, e.Type, e.Length)
-	return nil
-}
+// func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+// 	log.Infof("CUSTOM PROCESS: Entry[%d] Type[%d] Length[%d]", e.Number, e.Type, e.Length)
+// 	return nil
+// }
 
 // runRelay runs a local datastream relay
 func runRelay(ctx *cli.Context) error {
+	// Set log level
+	logLevel := ctx.String("log")
+	log.Init(log.Config{
+		Environment: "development",
+		Level:       logLevel,
+		Outputs:     []string{"stdout"},
+	})
+
 	log.Info(">> App begin")
 
 	// Parameters

@@ -18,7 +18,7 @@ lint: ## Runs the linter
 	export "GOROOT=$$(go env GOROOT)" && $$(go env GOPATH)/bin/golangci-lint run
 
 .PHONY: build
-build: ## Builds datastream cli app (server, client, relay)
+build: ## Builds datastream demo cli app (server, client, relay)
 	go build -o dsdemo cmd/main.go
 
 .PHONY: test
