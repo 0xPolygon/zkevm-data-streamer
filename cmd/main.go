@@ -6,14 +6,12 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
-	"reflect"
 	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/urfave/cli/v2"
 )
 
@@ -175,26 +173,6 @@ func runServer(ctx *cli.Context) error {
 		os.Exit(1)
 	}
 
-	// Set data entries definition (optional)
-	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		EtL2BlockStart: {
-			Name:       "L2BlockStart",
-			StreamType: datastreamer.StreamTypeSequencer,
-			Definition: reflect.TypeOf(datastreamer.L2BlockStart{}),
-		},
-		EtL2Tx: {
-			Name:       "L2Transaction",
-			StreamType: datastreamer.StreamTypeSequencer,
-			Definition: reflect.TypeOf(datastreamer.L2Transaction{}),
-		},
-		EtL2BlockEnd: {
-			Name:       "L2BlockEnd",
-			StreamType: datastreamer.StreamTypeSequencer,
-			Definition: reflect.TypeOf(datastreamer.L2BlockEnd{}),
-		},
-	}
-	s.SetEntriesDef(entriesDefinition)
-
 	// Start stream server
 	err = s.Start()
 	if err != nil {
@@ -207,29 +185,24 @@ func runServer(ctx *cli.Context) error {
 
 	// ------------------------------------------------------------
 	// Fake Sequencer data
-	l2blockStart := datastreamer.L2BlockStart{
-		BatchNumber:    101,               // nolint:gomnd
-		L2BlockNumber:  1337,              // nolint:gomnd
-		Timestamp:      time.Now().Unix(), // nolint:gomnd
-		GlobalExitRoot: [32]byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17},
-		Coinbase:       [20]byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24},
-		ForkID:         5, // nolint:gomnd
-	}
-	dataBlockStart := l2blockStart.Encode()
+	dataBlockStart := make([]byte, 0)
+	dataBlockStart = binary.LittleEndian.AppendUint64(dataBlockStart, 101)  // nolint:gomnd
+	dataBlockStart = binary.LittleEndian.AppendUint64(dataBlockStart, 1337) // nolint:gomnd
+	dataBlockStart = binary.LittleEndian.AppendUint64(dataBlockStart, uint64(time.Now().Unix()))
+	dataBlockStart = append(dataBlockStart, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
+	dataBlockStart = append(dataBlockStart, []byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24}...)
+	dataBlockStart = binary.LittleEndian.AppendUint16(dataBlockStart, 5) // nolint:gomnd
 
-	l2tx := datastreamer.L2Transaction{
-		EffectiveGasPricePercentage: 128,                   // nolint:gomnd
-		IsValid:                     1,                     // nolint:gomnd
-		EncodedLength:               5,                     // nolint:gomnd
-		Encoded:                     []byte{1, 2, 3, 4, 5}, // nolint:gomnd
-	}
-	dataTx := l2tx.Encode()
+	dataTx := make([]byte, 0)                            // nolint:gomnd
+	dataTx = append(dataTx, 128)                         // nolint:gomnd
+	dataTx = append(dataTx, 1)                           // nolint:gomnd
+	dataTx = binary.LittleEndian.AppendUint32(dataTx, 5) // nolint:gomnd
+	dataTx = append(dataTx, []byte{1, 2, 3, 4, 5}...)    // nolint:gomnd
 
-	l2BlockEnd := datastreamer.L2BlockEnd{
-		BlockHash: common.Hash{},
-		StateRoot: common.Hash{},
-	}
-	dataBlockEnd := l2BlockEnd.Encode()
+	dataBlockEnd := make([]byte, 0)
+	dataBlockEnd = binary.LittleEndian.AppendUint64(dataBlockEnd, 1337) // nolint:gomnd
+	dataBlockEnd = append(dataBlockEnd, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}...)
+	dataBlockEnd = append(dataBlockEnd, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}...)
 	// ------------------------------------------------------------
 
 	imark := s.GetHeader().TotalEntries
@@ -351,26 +324,6 @@ func runClient(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// Set data entries definition (optional)
-	entriesDefinition := map[datastreamer.EntryType]datastreamer.EntityDefinition{
-		EtL2BlockStart: {
-			Name:       "L2BlockStart",
-			StreamType: datastreamer.StreamTypeSequencer,
-			Definition: reflect.TypeOf(datastreamer.L2BlockStart{}),
-		},
-		EtL2Tx: {
-			Name:       "L2Transaction",
-			StreamType: datastreamer.StreamTypeSequencer,
-			Definition: reflect.TypeOf(datastreamer.L2Transaction{}),
-		},
-		EtL2BlockEnd: {
-			Name:       "L2BlockEnd",
-			StreamType: datastreamer.StreamTypeSequencer,
-			Definition: reflect.TypeOf(datastreamer.L2BlockEnd{}),
-		},
-	}
-	c.SetEntriesDef(entriesDefinition)
 
 	// Set process entry callback function
 	// c.SetProcessEntryFunc(printEntryNum, nil)

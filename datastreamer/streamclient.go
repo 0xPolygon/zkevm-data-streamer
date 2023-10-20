@@ -7,7 +7,6 @@ import (
 	"net"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
-	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -36,8 +35,6 @@ type StreamClient struct {
 
 	processEntry ProcessEntryFunc // Callback function to process the entry
 	relayServer  *StreamServer    // Only used by the client on the stream relay server
-
-	entriesDef map[EntryType]EntityDefinition
 }
 
 // NewClient creates a new data stream client
@@ -82,16 +79,6 @@ func (c *StreamClient) Start() error {
 	go c.getStreaming()
 
 	return nil
-}
-
-// SetEntriesDef sets the event data fields definition
-func (c *StreamClient) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) {
-	c.entriesDef = entriesDef
-}
-
-// GetEntryDef returns the definition of an entry type
-func (c *StreamClient) GetEntryDef(etype EntryType) EntityDefinition {
-	return c.entriesDef[etype]
 }
 
 // ExecCommand executes a valid client TCP command
@@ -414,16 +401,6 @@ func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) 
 // PrintReceivedEntry prints received entry (default callback function)
 func PrintReceivedEntry(e *FileEntry, c *StreamClient, s *StreamServer) error {
 	// Log data entry fields
-	if e.Type != EtBookmark && log.GetLevel() == zapcore.DebugLevel {
-		entity := c.GetEntryDef(e.Type)
-		if entity.Name != "" {
-			log.Debugf("Data entry(%s): %d | %d | %d | %s", c.Id, e.Number, e.Length, e.Type, entity.ToString(e.Data))
-		} else {
-			log.Warnf("Data entry(%s): %d | %d | %d | No definition for this entry type", c.Id, e.Number, e.Length, e.Type)
-		}
-	} else {
-		log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
-	}
-
+	log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
 	return nil
 }

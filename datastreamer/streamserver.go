@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
-	"go.uber.org/zap/zapcore"
 )
 
 // Command type for the TCP client commands
@@ -102,8 +101,6 @@ type StreamServer struct {
 	stream     chan streamAO // Channel to stream committed atomic operations
 	streamFile StreamFile
 	bookmark   StreamBookmark
-
-	entriesDef map[EntryType]EntityDefinition
 }
 
 // streamAO type to manage atomic operations
@@ -196,11 +193,6 @@ func (s *StreamServer) Start() error {
 	go s.waitConnections()
 
 	return nil
-}
-
-// SetEntriesDef sets the event data fields definition
-func (s *StreamServer) SetEntriesDef(entriesDef map[EntryType]EntityDefinition) {
-	s.entriesDef = entriesDef
 }
 
 // waitConnections waits for a new client connection and creates a goroutine to manages it
@@ -339,16 +331,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	}
 
 	// Log data entry fields
-	if etype != EtBookmark && log.GetLevel() == zapcore.DebugLevel && e.packetType == PtData {
-		entity := s.entriesDef[etype]
-		if entity.Name != "" {
-			log.Debugf("%s entry: %d | %d | %d | %d | %s", desc, e.Number, e.packetType, e.Length, e.Type, entity.ToString(data))
-		} else {
-			log.Warnf("%s entry: %d | %d | %d | %d | No definition for this entry type", desc, e.Number, e.packetType, e.Length, e.Type)
-		}
-	} else {
-		log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
-	}
+	log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
 
 	// Update header (in memory) and write data entry into the file
 	err := s.streamFile.AddFileEntry(e)
