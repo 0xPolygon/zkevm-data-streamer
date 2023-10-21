@@ -567,7 +567,12 @@ func (f *StreamFile) fillPagePadEntries() error {
 	}
 
 	// Page remaining free space
-	pageRemaining := pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
+	var pageRemaining uint64
+	if (f.header.TotalLength-pageHeaderSize)%pageDataSize == 0 {
+		pageRemaining = 0
+	} else {
+		pageRemaining = pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
+	}
 
 	if pageRemaining > 0 {
 		// Pad entries
