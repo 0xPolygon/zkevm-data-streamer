@@ -501,8 +501,13 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	be := encodeFileEntryToBinary(e)
 
 	// Check if the entry fits on current page
+	var pageRemaining uint64
 	entryLength := uint64(len(be))
-	pageRemaining := pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
+	if (f.header.TotalLength-pageHeaderSize)%pageDataSize == 0 {
+		pageRemaining = 0
+	} else {
+		pageRemaining = pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
+	}
 	if entryLength > pageRemaining {
 		log.Debugf(">> Fill with pad entries. PageRemaining:%d, EntryLength:%d", pageRemaining, entryLength)
 		err = f.fillPagePadEntries()
@@ -513,13 +518,13 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		// Check if file is full
 		if f.header.TotalLength == f.maxLength {
 			// Add new data pages to the file
-			log.Infof(">> FULL FILE (TotalLength: %d) -> extending!", f.header.TotalLength)
+			log.Warnf(">> FULL FILE (TotalLength: %d) -> extending!", f.header.TotalLength)
 			err = f.extendFile()
 			if err != nil {
 				return err
 			}
 
-			log.Infof(">> New file max length: %d", f.maxLength)
+			log.Warnf(">> New file max length: %d", f.maxLength)
 
 			// Re-set the file position to write
 			_, err = f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
