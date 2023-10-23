@@ -91,6 +91,7 @@ var (
 type StreamServer struct {
 	port     uint16 // Server stream port
 	fileName string // Stream file name
+	started  bool   // Flag server started
 
 	streamType StreamType
 	ln         net.Listener
@@ -130,6 +131,7 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 	s := StreamServer{
 		port:     port,
 		fileName: fileName,
+		started:  false,
 
 		streamType: streamType,
 		ln:         nil,
@@ -191,6 +193,9 @@ func (s *StreamServer) Start() error {
 	// Goroutine to wait for clients connections
 	log.Infof("Listening on port: %d", s.port)
 	go s.waitConnections()
+
+	// Flag stared
+	s.started = true
 
 	return nil
 }
@@ -272,9 +277,15 @@ func (s *StreamServer) StartAtomicOp() error {
 	defer log.Infof("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
 	log.Infof("!!!Start AtomicOp (%d)", s.nextEntry)
+	// Check status of the server
+	if !s.started {
+		log.Errorf("AtomicOp not allowed. Server is not started")
+		return errors.New("atomicop not allowed, server is not started")
+	}
+	// Check status of the atomic operation
 	if s.atomicOp.status == aoStarted {
 		log.Errorf("AtomicOp already started and in progress after entry %d", s.atomicOp.startEntry)
-		return errors.New("start not allowed, atomicop already started")
+		return errors.New("start atomicop not allowed, atomicop already started")
 	}
 
 	s.atomicOp.status = aoStarted
@@ -411,6 +422,35 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	return nil
 }
 
+// TruncateFile truncates stream data file from an entry number onwards
+func (s *StreamServer) TruncateFile(entryNum uint64) error {
+	// TODO
+	return nil
+}
+
+// UpdateEntryData updates the internal data of an entry
+func (s *StreamServer) UpdateEntryData(entryNum uint64, etype EntryType, data []byte) error {
+	// Check the entry number
+	if entryNum >= s.nextEntry {
+		log.Errorf("Invalid entry number [%d], it doesn't exist", entryNum)
+		return errors.New("invalid entry number, doesnt exist")
+	}
+
+	// Check entry not in current atomic operation
+	if s.atomicOp.status != aoNone && entryNum >= s.atomicOp.startEntry {
+		log.Errorf("Entry number [%d] not allowed for update, it's in the current atomic operation", entryNum)
+		return errors.New("not allowed to update, it's in current atomic operation")
+	}
+
+	// Update entry data in the stream file
+	err := s.streamFile.updateEntryData(entryNum, etype, data)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // GetHeader returns the current committed header
 func (s *StreamServer) GetHeader() HeaderEntry {
 	// Get current file header
@@ -421,7 +461,7 @@ func (s *StreamServer) GetHeader() HeaderEntry {
 // GetEntry searches in the stream file and returns the data for the requested entry
 func (s *StreamServer) GetEntry(entryNum uint64) (FileEntry, error) {
 	// Initialize file stream iterator
-	iterator, err := s.streamFile.iteratorFrom(entryNum)
+	iterator, err := s.streamFile.iteratorFrom(entryNum, true)
 	if err != nil {
 		return FileEntry{}, err
 	}
@@ -455,7 +495,7 @@ func (s *StreamServer) GetFirstEventAfterBookmark(bookmark []byte) (FileEntry, e
 	}
 
 	// Initialize file stream iterator from bookmark's entry
-	iterator, err := s.streamFile.iteratorFrom(entryNum)
+	iterator, err := s.streamFile.iteratorFrom(entryNum, true)
 	if err != nil {
 		return entry, err
 	}
@@ -721,7 +761,7 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 	log.Infof("SYNCING %s from entry %d...", clientId, fromEntry)
 
 	// Start file stream iterator
-	iterator, err := s.streamFile.iteratorFrom(fromEntry)
+	iterator, err := s.streamFile.iteratorFrom(fromEntry, true)
 	if err != nil {
 		return err
 	}

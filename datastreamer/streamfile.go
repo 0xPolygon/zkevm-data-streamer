@@ -632,9 +632,17 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 }
 
 // iteratorFrom initializes iterator to locate a data entry number in the stream file
-func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
+func (f *StreamFile) iteratorFrom(entryNum uint64, readOnly bool) (*iteratorFile, error) {
+	// Iterator mode
+	var flag int
+	if readOnly {
+		flag = os.O_RDONLY
+	} else {
+		flag = os.O_RDWR
+	}
+
 	// Open file for read only
-	file, err := os.OpenFile(f.fileName, os.O_RDONLY, os.ModePerm)
+	file, err := os.OpenFile(f.fileName, flag, os.ModePerm)
 	if err != nil {
 		log.Errorf("Error opening file for iterator: %v", err)
 		return nil, err
@@ -655,7 +663,7 @@ func (f *StreamFile) iteratorFrom(entryNum uint64) (*iteratorFile, error) {
 	return &iterator, err
 }
 
-// iteratorNext gets the next data entry in the stream file for the iterator
+// iteratorNext gets the next data entry in the file for the iterator, returns the end of entries condition
 func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Check end of entries condition
 	if iterator.Entry.Number == f.writtenHead.TotalEntries {
@@ -934,5 +942,71 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 			break
 		}
 	}
+	return nil
+}
+
+// updateEntryData updates the internal data of an entry in the file
+func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []byte) error {
+	// Check the entry number
+	if entryNum >= f.writtenHead.TotalEntries {
+		log.Errorf("Invalid entry number [%d], not committed in the file", entryNum)
+		return errors.New("invalid entry number, not committed in the file")
+	}
+
+	// Create iterator and locate the entry in the file
+	iterator, err := f.iteratorFrom(entryNum, false)
+	if err != nil {
+		return err
+	}
+
+	// Get current entry data
+	_, err = f.iteratorNext(iterator)
+	if err != nil {
+		return err
+	}
+
+	// Sanity check
+	if iterator.Entry.Number != entryNum {
+		log.Errorf("Entry number to update doesn't match. Current[%d] Update[%d]", iterator.Entry.Number, entryNum)
+		return errors.New("entry number doesn't match")
+	}
+
+	// Check entry type
+	if iterator.Entry.Type != etype {
+		log.Errorf("Updating entry to a different entry type not allowed. Current[%d] Update[%d]", iterator.Entry.Type, etype)
+		return errors.New("updating entry to a different entry type not allowed")
+	}
+
+	// Check length of data
+	dataLength := iterator.Entry.Length - FixedSizeFileEntry
+	if dataLength != uint32(len(data)) {
+		log.Errorf("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
+		return errors.New("updating entry data to a different length not allowed")
+	}
+
+	// Back to the start of the data in the file
+	_, err = iterator.file.Seek(-int64(dataLength), io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error file seeking for update entry data: %v", err)
+		return err
+	}
+
+	// Write new data entry
+	_, err = iterator.file.Write(data)
+	if err != nil {
+		log.Errorf("Error writing updated entry data: %v", err)
+		return err
+	}
+
+	// Flush data to disk
+	err = iterator.file.Sync()
+	if err != nil {
+		log.Errorf("Error flushing updated entry data to disk: %v", err)
+		return err
+	}
+
+	// Close iterator
+	f.iteratorEnd(iterator)
+
 	return nil
 }
