@@ -135,6 +135,9 @@ Stream relay server included in the datastream library allows scaling the number
 - GetBookmark(u8[] bookmark) -> returns u64 entryNumber
 - GetFirstEventAfterBookmark(u8[] bookmark) -> returns struct FileEntry
 
+### Update data API
+- UpdateEntryData(u64 entryNumber, u32 entryType, u8[] newData)
+
 ## DATASTREAM CLI DEMO APP
 Build the binary datastream demo app (`dsdemo`):
 ```
