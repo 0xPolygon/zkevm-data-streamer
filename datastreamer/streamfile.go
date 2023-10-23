@@ -856,7 +856,13 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	}
 
 	// Check if exists another data page
-	forward := pageDataSize - (curpos-pageHeaderSize)%pageDataSize
+	var forward int64
+	if (curpos-pageHeaderSize)%pageDataSize == 0 {
+		forward = 0
+	} else {
+		forward = pageDataSize - (curpos-pageHeaderSize)%pageDataSize
+	}
+
 	if curpos+forward >= int64(f.writtenHead.TotalLength) {
 		return math.MaxUint64, nil
 	}

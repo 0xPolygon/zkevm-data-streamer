@@ -138,11 +138,13 @@ Stream relay server included in the datastream library allows scaling the number
 ## DATASTREAM CLI DEMO APP
 Build the binary datastream demo app (`dsdemo`):
 ```
-$ make build
+make build
 ```
 Run the app without parameters to see the available commands:
 ```
-$ ./dsdemo
+./dsdemo
+```
+```
 NAME:
    dsdemo - Run a datastream server/client/relay demo cli app
 
@@ -161,7 +163,9 @@ GLOBAL OPTIONS:
 ### SERVER
 Use the help option to check available parameters for the server command:
 ```
-$ ./dsdemo help server
+./dsdemo help server
+```
+```
 NAME:
    dsdemo server - Run datastream server
 
@@ -178,16 +182,18 @@ OPTIONS:
 ```
 Run a datastream server with default parameters (port: `6900`, file: `datastream.bin`, log: `info`):
 ```
-$ ./dsdemo server
+./dsdemo server
 ```
 Or run a datastream server with custom parameters:
 ```
-$ ./dsdemo server --port 6969 --file seqstream.bin --log warn
+./dsdemo server --port 6969 --file seqstream.bin --log warn
 ```
 ### CLIENT
 Use the help option to check available parameters for the client command:
 ```
-$ ./dsdemo help client
+./dsdemo help client
+```
+```
 NAME:
    dsdemo client - Run datastream client
 
@@ -203,11 +209,11 @@ OPTIONS:
 ```
 Run a datastream client with default parameters (server: `127.0.0.1:6900`, from: `latest`, log: `info`)
 ```
-$ ./dsdemo client
+./dsdemo client
 ```
 Or run a datastream client with custom parameters:
 ```
-$ ./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
+./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
 ```
 
 ## USE CASE: zkEVM SEQUENCER ENTRIES
