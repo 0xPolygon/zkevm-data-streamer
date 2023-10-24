@@ -29,7 +29,7 @@ The binary file format is described below.
 #### Magic numbers
 At the beginning of the file there are the following magic bytes (file signature): `polygonDATSTREAM`
 
-#### HEADER ENTRY format (HeaderEntry struct)
+#### HEADER ENTRY format (HeaderEntry)
 >u8 packetType = 1 // 1:Header  
 >u32 headerLength = 29 // Total length of header entry  
 >u64 streamType // 1:Sequencer  
@@ -40,7 +40,7 @@ At the beginning of the file there are the following magic bytes (file signature
 - From the second page starts the data pages.  
 - Page size = 1 MB
 
-#### DATA ENTRY format (FileEntry struct)
+#### DATA ENTRY format (FileEntry)
 >u8 packetType // 2:Data entry, 0:Padding  
 >u32 Length // Total length of data entry (17 bytes + length(data))  
 >u32 Type // 0xb0:Bookmark, 1:Event1, 2:Event2,...  
@@ -63,7 +63,7 @@ Syncs from the entry number (`fromEntryNumber`) and starts receiving data stream
 
 Command format sent by the client:
 >u64 command = 1  
->u64 streamType // 1:Sequencer  
+>u64 streamType // e.g. 1:Sequencer  
 >u64 fromEntryNumber  
 
 If already started terminates the connection.
@@ -73,7 +73,7 @@ Syncs from the bookmark (`fromBookmark`) and starts receiving data streaming fro
 
 Command format sent by the client:
 >u64 command = 4  
->u64 streamType // 1:Sequencer  
+>u64 streamType // e.g. 1:Sequencer  
 >u32 bookmarkLength // Length of fromBookmark  
 >u8[] fromBookmark  
 
@@ -84,7 +84,7 @@ Stops the reception of the streaming transmission.
 
 Command format sent by the client:
 >u64 command = 2  
->u64 streamType // 1:Sequencer  
+>u64 streamType // e.g. 1:Sequencer  
 
 If not started terminates the connection.
 
@@ -93,11 +93,32 @@ Gets the current stream file header (`HeaderEntry` format defined in the [STREAM
 
 Command format sent by the client:
 >u64 command = 3  
->u64 streamType // 1:Sequencer  
+>u64 streamType // e.g. 1:Sequencer  
 
 If streaming already started terminates the connection.
 
-### RESULT FORMAT (ResultEntry struct)
+### Entry
+Gets the data from the entry (`entryNumber`) in the format `FileEntry` defined in the [STREAM FILE](#stream-file) section).
+
+Command format sent by the client:
+>u64 command = 4  
+>u64 streamType // e.g. 1:Sequencer  
+>u64 entryNumber  
+
+If streaming already started terminates the connection.
+
+### Bookmark
+Gets the data from the entry pointed by the bookmark (`bookmark`) in the format `FileEntry` defined in the [STREAM FILE](#stream-file) section).
+
+Command format sent by the client:
+>u64 command = 5  
+>u64 streamType // e.g. 1:Sequencer  
+>u32 bookmarkLength // Length of bookmark  
+>u8[] bookmark  
+
+If streaming already started terminates the connection.
+
+### RESULT FORMAT (ResultEntry)
 Remember that all these TCP commands firstly return a response in the following detailed format:
 >u8 packetType // 0xff:Result  
 >u32 length // Total length of the entry  

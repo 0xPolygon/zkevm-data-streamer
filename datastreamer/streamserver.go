@@ -41,7 +41,8 @@ const (
 	CmdStop                             // CmdStop for the stop TCP client command
 	CmdHeader                           // CmdHeader for the header TCP client command
 	CmdStartBookmark                    // CmdStartBookmark for the start from bookmark TCP client command
-	CmdEntry                            // CmdEntry for the entry TCP client command
+	CmdEntry                            // CmdEntry for the get entry TCP client command
+	CmdBookmark                         // CmdBookmark for the get bookmark TCP client command
 )
 
 const (
@@ -85,6 +86,7 @@ var (
 		CmdHeader:        "Header",
 		CmdStartBookmark: "StartBookmark",
 		CmdEntry:         "Entry",
+		CmdBookmark:      "Bookmark",
 	}
 
 	// StrCommandErrors for TCP command errors description
@@ -667,6 +669,15 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 			err = s.processCmdEntry(clientId)
 		}
 
+	case CmdBookmark:
+		if cli.status != csStopped {
+			log.Error("Bookmark command not allowed, stream started!")
+			err = ErrBookmarkCommandNotAllowed
+			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
+		} else {
+			err = s.processCmdBookmark(clientId)
+		}
+
 	default:
 		log.Error("Invalid command!")
 		err = ErrInvalidCommand
@@ -814,7 +825,7 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 	if err != nil {
 		return err
 	}
-	entry.packetType = PtDataResult
+	entry.packetType = PtDataRsp
 	binaryEntry := encodeFileEntryToBinary(entry)
 
 	// Send entry to the client
@@ -830,6 +841,53 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 	}
 
 	return err
+}
+
+// processCmdBookmark processes the TCP Bookmark command from the clients
+func (s *StreamServer) processCmdBookmark(clientId string) error {
+	// Read bookmark length parameter
+	conn := s.clients[clientId].conn
+	length, err := readFullUint32(conn)
+	if err != nil {
+		return err
+	}
+
+	// Read bookmark parameter
+	bookmark, err := readFullBytes(length, conn)
+	if err != nil {
+		return err
+	}
+
+	// Log
+	log.Infof("Client %s command Bookmark %v", clientId, bookmark)
+
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
+
+	// Get the requested bookmark
+	entry, err := s.GetFirstEventAfterBookmark(bookmark)
+	if err != nil {
+		return err
+	}
+	entry.packetType = PtDataRsp
+	binaryEntry := encodeFileEntryToBinary(entry)
+
+	// Send entry to the client
+	conn = s.clients[clientId].conn
+	if conn != nil {
+		_, err = conn.Write(binaryEntry)
+	} else {
+		err = ErrNilConnection
+	}
+	if err != nil {
+		log.Warnf("Error sending entry to %s: %v", clientId, err)
+		return err
+	}
+
+	return nil
 }
 
 // streamingFromEntry sends to the client the stream data starting from the requested entry number

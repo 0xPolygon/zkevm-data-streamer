@@ -23,11 +23,11 @@ const (
 	initPages      = 100         // Initial number of data pages
 	nextPages      = 10          // Number of data pages to add when file is full
 
-	PtPadding    = 0    // PtPadding is packet type for pad
-	PtHeader     = 1    // PtHeader is packet type just for the header page
-	PtData       = 2    // PtData is packet type for data entry
-	PtDataResult = 0xfe // PtDataResult is packet type for result entry with data
-	PtResult     = 0xff // PtResult is packet type not stored/present in file (just for client command result)
+	PtPadding = 0    // PtPadding is packet type for pad
+	PtHeader  = 1    // PtHeader is packet type just for the header page
+	PtData    = 2    // PtData is packet type for data entry
+	PtDataRsp = 0xfe // PtDataRsp is packet type for command response with data
+	PtResult  = 0xff // PtResult is packet type not stored/present in file (just for client command result)
 
 	EtBookmark = 0xb0 // EtBookmark is entry type for bookmarks
 

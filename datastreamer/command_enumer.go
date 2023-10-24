@@ -6,9 +6,9 @@ import (
 	"fmt"
 )
 
-const _CommandName = "CmdStartCmdStopCmdHeaderCmdStartBookmarkCmdEntry"
+const _CommandName = "CmdStartCmdStopCmdHeaderCmdStartBookmarkCmdEntryCmdBookmark"
 
-var _CommandIndex = [...]uint8{0, 8, 15, 24, 40, 48}
+var _CommandIndex = [...]uint8{0, 8, 15, 24, 40, 48, 59}
 
 func (i Command) String() string {
 	i -= 1
@@ -18,7 +18,7 @@ func (i Command) String() string {
 	return _CommandName[_CommandIndex[i]:_CommandIndex[i+1]]
 }
 
-var _CommandValues = []Command{1, 2, 3, 4, 5}
+var _CommandValues = []Command{1, 2, 3, 4, 5, 6}
 
 var _CommandNameToValueMap = map[string]Command{
 	_CommandName[0:8]:   1,
@@ -26,6 +26,7 @@ var _CommandNameToValueMap = map[string]Command{
 	_CommandName[15:24]: 3,
 	_CommandName[24:40]: 4,
 	_CommandName[40:48]: 5,
+	_CommandName[48:59]: 6,
 }
 
 // CommandString retrieves an enum value from the enum constants string name.
