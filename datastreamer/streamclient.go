@@ -12,6 +12,7 @@ const (
 	resultsBuffer = 32  // Buffers for the results channel
 	headersBuffer = 32  // Buffers for the headers channel
 	entriesBuffer = 128 // Buffers for the entries channel
+	dataBuffer    = 32  // Buffers for data command response
 )
 
 // ProcessEntryFunc type of the callback function to process the received entry
@@ -50,7 +51,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		results: make(chan ResultEntry, resultsBuffer),
 		headers: make(chan HeaderEntry, headersBuffer),
 		entries: make(chan FileEntry, entriesBuffer),
-		entry:   make(chan FileEntry, entriesBuffer),
+		entry:   make(chan FileEntry, dataBuffer),
 
 		relayServer: nil,
 	}

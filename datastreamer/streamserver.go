@@ -34,7 +34,6 @@ type CommandError uint32
 const (
 	maxConnections = 100 // Maximum number of connected clients
 	streamBuffer   = 256 // Buffers for the stream channel
-
 )
 
 const (
