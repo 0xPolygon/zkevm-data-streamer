@@ -32,6 +32,7 @@ type StreamClient struct {
 	results chan ResultEntry // Channel to read command results
 	headers chan HeaderEntry // Channel to read header entries from the command Header
 	entries chan FileEntry   // Channel to read data entries from the streaming
+	entry   chan FileEntry   // Channel to read result data entries from the streaming
 
 	processEntry ProcessEntryFunc // Callback function to process the entry
 	relayServer  *StreamServer    // Only used by the client on the stream relay server
@@ -49,6 +50,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		results: make(chan ResultEntry, resultsBuffer),
 		headers: make(chan HeaderEntry, headersBuffer),
 		entries: make(chan FileEntry, entriesBuffer),
+		entry:   make(chan FileEntry),
 
 		relayServer: nil,
 	}
@@ -346,6 +348,14 @@ func (c *StreamClient) readEntries() {
 			// Send data to results channel
 			c.results <- r
 
+		case PtDataResult:
+			// Read result entry data
+			r, err := c.readDataEntry()
+			if err != nil {
+				return
+			}
+			c.entry <- r
+
 		case PtHeader:
 			// Read header entry data
 			h, err := c.readHeaderEntry()
@@ -389,7 +399,7 @@ func (c *StreamClient) getHeader() HeaderEntry {
 
 // getEntry consumes a entry
 func (c *StreamClient) getEntry() FileEntry {
-	e := <-c.entries
+	e := <-c.entry
 	log.Infof("%s Entry received info: Number[%d]", c.Id, e.Number)
 	return e
 }

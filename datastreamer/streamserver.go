@@ -38,11 +38,11 @@ const (
 )
 
 const (
-	CmdStart         Command = iota // CmdStart for the start from entry TCP client command
-	CmdStop                         // CmdStop for the stop TCP client command
-	CmdHeader                       // CmdHeader for the header TCP client command
-	CmdStartBookmark                // CmdStartBookmark for the start from bookmark TCP client command
-	CmdEntry                        // CmdEntry for the entry TCP client command
+	CmdStart         Command = iota + 1 // CmdStart for the start from entry TCP client command
+	CmdStop                             // CmdStop for the stop TCP client command
+	CmdHeader                           // CmdHeader for the header TCP client command
+	CmdStartBookmark                    // CmdStartBookmark for the start from bookmark TCP client command
+	CmdEntry                            // CmdEntry for the entry TCP client command
 )
 
 const (
@@ -784,22 +784,17 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 	}
 
 	// Log
-	log.Infof("Client %s command Entry from %d", clientId, entryNumber)
-
-	// Send a command result entry OK
-	err = s.sendResultEntry(0, "OK", clientId)
-	if err != nil {
-		return err
-	}
+	log.Infof("Client %s command Entry %d", clientId, entryNumber)
 
 	// Get the requested entry
 	entry, err := s.GetEntry(entryNumber)
 	if err != nil {
 		return err
 	}
+	entry.packetType = PtDataResult
 	binaryEntry := encodeFileEntryToBinary(entry)
 
-	// Send header entry to the client
+	// Send entry to the client
 	conn = s.clients[clientId].conn
 	if conn != nil {
 		_, err = conn.Write(binaryEntry)
