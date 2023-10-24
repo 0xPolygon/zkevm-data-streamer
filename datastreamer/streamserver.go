@@ -84,6 +84,7 @@ var (
 		CmdStop:          "Stop",
 		CmdHeader:        "Header",
 		CmdStartBookmark: "StartBookmark",
+		CmdEntry:         "Entry",
 	}
 
 	// StrCommandErrors for TCP command errors description
@@ -801,6 +802,12 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 
 	// Log
 	log.Infof("Client %s command Entry %d", clientId, entryNumber)
+
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
 
 	// Get the requested entry
 	entry, err := s.GetEntry(entryNumber)
