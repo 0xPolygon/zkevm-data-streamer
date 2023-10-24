@@ -2,7 +2,6 @@ package datastreamer
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 
@@ -28,6 +27,7 @@ type StreamClient struct {
 	FromEntry    uint64      // Set starting entry number for the Start command
 	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
 	Header       HeaderEntry // Header info received from the Header command
+	Entry        FileEntry   // Entry info received from the Entry command
 
 	results chan ResultEntry // Channel to read command results
 	headers chan HeaderEntry // Channel to read header entries from the command Header
@@ -86,9 +86,9 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
 
 	// Check valid command
-	if cmd != CmdStart && cmd != CmdStartBookmark && cmd != CmdHeader && cmd != CmdStop {
+	if !cmd.IsACommand() {
 		log.Errorf("%s Invalid command %d", c.Id, cmd)
-		return errors.New("invalid command")
+		return ErrInvalidCommand
 	}
 
 	// Send command
@@ -103,14 +103,15 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	}
 
 	// Send the Start and StartBookmark parameters
-	if cmd == CmdStart {
+	switch cmd {
+	case CmdStart:
 		log.Infof("%s ...from entry %d", c.Id, c.FromEntry)
 		// Send starting/from entry number
 		err = writeFullUint64(c.FromEntry, c.conn)
 		if err != nil {
 			return err
 		}
-	} else if cmd == CmdStartBookmark {
+	case CmdStartBookmark:
 		log.Infof("%s ...from bookmark [%v]", c.Id, c.FromBookmark)
 		// Send starting/from bookmark length
 		err = writeFullUint32(uint32(len(c.FromBookmark)), c.conn)
@@ -122,18 +123,25 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		if err != nil {
 			return err
 		}
+	case CmdEntry:
+		log.Infof("%s ...get entry %d", c.Id, c.FromEntry)
+		// Send entry to retrieve
+		err = writeFullUint64(c.FromEntry, c.conn)
+		if err != nil {
+			return err
+		}
+		c.Entry = c.getEntry()
+		return nil
+	case CmdHeader:
+		h := c.getHeader()
+		c.Header = h
+		return nil
 	}
 
 	// Get command result
 	r := c.getResult(cmd)
 	if r.errorNum != uint32(CmdErrOK) {
-		return errors.New("result command error")
-	}
-
-	// Get header entry
-	if cmd == CmdHeader {
-		h := c.getHeader()
-		c.Header = h
+		return ErrResultCommandError
 	}
 
 	return nil
@@ -148,7 +156,7 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 	if conn != nil {
 		_, err = conn.Write(buffer)
 	} else {
-		err = errors.New("error nil connection")
+		err = ErrNilConnection
 	}
 	if err != nil {
 		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
@@ -166,7 +174,7 @@ func writeFullUint32(value uint32, conn net.Conn) error {
 	if conn != nil {
 		_, err = conn.Write(buffer)
 	} else {
-		err = errors.New("error nil connection")
+		err = ErrNilConnection
 	}
 	if err != nil {
 		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
@@ -181,7 +189,7 @@ func writeFullBytes(buffer []byte, conn net.Conn) error {
 	if conn != nil {
 		_, err = conn.Write(buffer)
 	} else {
-		err = errors.New("error nil connection")
+		err = ErrNilConnection
 	}
 	if err != nil {
 		log.Errorf("%s Error sending to server: %v", conn.RemoteAddr().String(), err)
@@ -212,7 +220,7 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeFileEntry {
 		log.Errorf("%s Error reading data entry", c.Id)
-		return d, errors.New("error reading data entry")
+		return d, ErrReadingDataEntry
 	}
 
 	bufferAux := make([]byte, length-FixedSizeFileEntry)
@@ -249,7 +257,7 @@ func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 	}
 	if n != headerSize-1 {
 		log.Error("Error getting header info")
-		return h, errors.New("error getting header info")
+		return h, ErrGettingHeaderInfo
 	}
 	packet := []byte{PtHeader}
 	buffer = append(packet, buffer...)
@@ -286,7 +294,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeResultEntry {
 		log.Errorf("%s Error reading result entry", c.Id)
-		return e, errors.New("error reading result entry")
+		return e, ErrReadingResultEntry
 	}
 
 	bufferAux := make([]byte, length-FixedSizeResultEntry)
@@ -377,6 +385,13 @@ func (c *StreamClient) getHeader() HeaderEntry {
 	h := <-c.headers
 	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d]", c.Id, h.TotalEntries, h.TotalLength)
 	return h
+}
+
+// getEntry consumes a entry
+func (c *StreamClient) getEntry() FileEntry {
+	e := <-c.entries
+	log.Infof("%s Entry received info: Number[%d]", c.Id, e.Number)
+	return e
 }
 
 // getStreaming consumes streaming data entries

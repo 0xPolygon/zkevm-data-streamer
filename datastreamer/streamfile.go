@@ -3,7 +3,6 @@ package datastreamer
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"io"
 	"math"
 	"os"
@@ -310,7 +309,7 @@ func (f *StreamFile) readHeaderEntry() error {
 	}
 	if n != headerSize {
 		log.Error("Error getting header info")
-		return errors.New("error getting header info")
+		return ErrGettingHeaderInfo
 	}
 
 	// Convert to header struct
@@ -395,7 +394,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 
 	if len(b) != headerSize {
 		log.Error("Invalid binary header entry")
-		return e, errors.New("invalid binary header entry")
+		return e, ErrInvalidBinaryHeader
 	}
 
 	e.packetType = b[0]
@@ -430,7 +429,7 @@ func (f *StreamFile) checkFileConsistency() error {
 	// Check header page is present
 	if info.Size() < pageHeaderSize {
 		log.Error("Invalid file: missing header page")
-		return errors.New("invalid file missing header page")
+		return ErrInvalidFileMissingHeaderPage
 	}
 
 	// Check data pages are not cut
@@ -438,7 +437,7 @@ func (f *StreamFile) checkFileConsistency() error {
 	uncut := dataSize % int64(f.pageSize)
 	if uncut != 0 {
 		log.Error("Inconsistent file size there is a cut data page")
-		return errors.New("bad file size cut data page")
+		return ErrBadFileSizeCutDataPage
 	}
 
 	return nil
@@ -464,7 +463,7 @@ func (f *StreamFile) checkMagicNumbers() error {
 	// Check magic numbers
 	if !bytes.Equal(magic, magicNumbers) {
 		log.Errorf("Invalid magic numbers. Bad file?")
-		return errors.New("bad file format")
+		return ErrBadFileFormat
 	}
 
 	return nil
@@ -476,13 +475,13 @@ func (f *StreamFile) checkHeaderConsistency() error {
 
 	if f.header.packetType != PtHeader {
 		log.Error("Invalid header: bad packet type")
-		err = errors.New("invalid header bad packet type")
+		err = ErrInvalidHeaderBadPacketType
 	} else if f.header.headLength != headerSize {
 		log.Error("Invalid header: bad header length")
-		err = errors.New("invalid header bad header length")
+		err = ErrInvalidHeaderBadHeaderLength
 	} else if f.header.streamType != f.streamType {
 		log.Error("Invalid header: bad stream type")
-		err = errors.New("invalid header bad stream type")
+		err = ErrInvalidHeaderBadStreamType
 	}
 
 	return err
@@ -614,7 +613,7 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 
 	if len(b) < FixedSizeFileEntry {
 		log.Error("Invalid binary data entry")
-		return d, errors.New("invalid binary data entry")
+		return d, ErrInvalidBinaryEntry
 	}
 
 	d.packetType = b[0]
@@ -625,7 +624,7 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 
 	if uint32(len(d.Data)) != d.Length-FixedSizeFileEntry {
 		log.Error("Error decoding binary data entry")
-		return d, errors.New("error decoding binary data entry")
+		return d, ErrDecodingBinaryDataEntry
 	}
 
 	return d, nil
@@ -718,7 +717,7 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Should be of type data
 	if packet[0] != PtData {
 		log.Errorf("Error expecting packet of type data(%d). Read: %d", PtData, packet[0])
-		return true, errors.New("error expecting packet type data")
+		return true, ErrExpectingPacketTypeData
 	}
 
 	// Read the rest of fixed data entry bytes
@@ -734,7 +733,7 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeFileEntry {
 		log.Errorf("Error decoding length data entry")
-		err = errors.New("error decoding length data entry")
+		err = ErrDecodingLengthDataEntry
 		return true, err
 	}
 
@@ -798,7 +797,7 @@ func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 		packetType := buffer[0]
 		if packetType != PtData {
 			log.Errorf("Error data page %d not starting with packet of type data. Type: %d", avg, packetType)
-			return errors.New("page not starting with entry data")
+			return ErrPageNotStartingWithEntryData
 		}
 
 		// Decode entry number and compare it with the one we are looking for
@@ -860,7 +859,7 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	// Check if it is valid the current file position
 	if curpos < pageHeaderSize || curpos > int64(f.writtenHead.TotalLength) {
 		log.Errorf("Error current file position outside a data page")
-		return 0, errors.New("current position outside data page")
+		return 0, ErrCurrentPositionOutsideDataPage
 	}
 
 	// Check if exists another data page
@@ -893,7 +892,7 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	// Decode packet type
 	if buffer[0] != PtData {
 		log.Errorf("Error data page not starting with packet of type data(%d). Type: %d", PtData, buffer[0])
-		return 0, errors.New("page not starting with entry data")
+		return 0, ErrPageNotStartingWithEntryData
 	}
 
 	// Decode entry number
@@ -927,7 +926,7 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 		// Not found
 		if end || iterator.Entry.Number > iterator.fromEntry {
 			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
-			return errors.New("entry not found")
+			return ErrEntryNotFound
 		}
 
 		// Found!
@@ -950,7 +949,7 @@ func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []by
 	// Check the entry number
 	if entryNum >= f.writtenHead.TotalEntries {
 		log.Errorf("Invalid entry number [%d], not committed in the file", entryNum)
-		return errors.New("invalid entry number, not committed in the file")
+		return ErrInvalidEntryNumberNotCommittedInFile
 	}
 
 	// Create iterator and locate the entry in the file
@@ -968,20 +967,20 @@ func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []by
 	// Sanity check
 	if iterator.Entry.Number != entryNum {
 		log.Errorf("Entry number to update doesn't match. Current[%d] Update[%d]", iterator.Entry.Number, entryNum)
-		return errors.New("entry number doesn't match")
+		return ErrEntryNumberMismatch
 	}
 
 	// Check entry type
 	if iterator.Entry.Type != etype {
 		log.Errorf("Updating entry to a different entry type not allowed. Current[%d] Update[%d]", iterator.Entry.Type, etype)
-		return errors.New("updating entry to a different entry type not allowed")
+		return ErrUpdateEntryTypeNotAllowed
 	}
 
 	// Check length of data
 	dataLength := iterator.Entry.Length - FixedSizeFileEntry
 	if dataLength != uint32(len(data)) {
 		log.Errorf("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
-		return errors.New("updating entry data to a different length not allowed")
+		return ErrUpdateEntryDifferentSize
 	}
 
 	// Back to the start of the data in the file

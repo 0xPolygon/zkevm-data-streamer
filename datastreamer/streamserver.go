@@ -2,7 +2,6 @@ package datastreamer
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"strconv"
@@ -13,6 +12,8 @@ import (
 )
 
 // Command type for the TCP client commands
+//
+//go:generate go run github.com/alvaroloes/enumer -type=Command
 type Command uint64
 
 // ClientStatus type for the status of the client
@@ -34,29 +35,39 @@ const (
 	maxConnections = 100 // Maximum number of connected clients
 	streamBuffer   = 256 // Buffers for the stream channel
 
-	CmdStart         Command = 1 // CmdStart for the start from entry TCP client command
-	CmdStartBookmark Command = 4 // CmdStartBookmark for the start from bookmark TCP client command
-	CmdStop          Command = 2 // CmdStop for the stop TCP client command
-	CmdHeader        Command = 3 // CmdHeader for the header TCP client command
+)
 
-	CmdErrOK              CommandError = 0 // CmdErrOK for no error
-	CmdErrAlreadyStarted  CommandError = 1 // CmdErrAlreadyStarted for client already started error
-	CmdErrAlreadyStopped  CommandError = 2 // CmdErrAlreadyStopped for client already stopped error
-	CmdErrBadFromEntry    CommandError = 3 // CmdErrBadFromEntry for invalid starting entry number
-	CmdErrBadFromBookmark CommandError = 4 // CmdErrBadFromBookmark for invalid starting bookmark
-	CmdErrInvalidCommand  CommandError = 9 // CmdErrInvalidCommand for invalid/unknown command error
+const (
+	CmdStart         Command = iota // CmdStart for the start from entry TCP client command
+	CmdStop                         // CmdStop for the stop TCP client command
+	CmdHeader                       // CmdHeader for the header TCP client command
+	CmdStartBookmark                // CmdStartBookmark for the start from bookmark TCP client command
+	CmdEntry                        // CmdEntry for the entry TCP client command
+)
 
+const (
+	CmdErrOK              CommandError = iota // CmdErrOK for no error
+	CmdErrAlreadyStarted                      // CmdErrAlreadyStarted for client already started error
+	CmdErrAlreadyStopped                      // CmdErrAlreadyStopped for client already stopped error
+	CmdErrBadFromEntry                        // CmdErrBadFromEntry for invalid starting entry number
+	CmdErrBadFromBookmark                     // CmdErrBadFromBookmark for invalid starting bookmark
+	CmdErrInvalidCommand  CommandError = 9    // CmdErrInvalidCommand for invalid/unknown command error
+)
+
+const (
 	// Client status
-	csSyncing ClientStatus = 1
-	csSynced  ClientStatus = 2
-	csStopped ClientStatus = 3
-	csKilled  ClientStatus = 0xff
+	csSyncing ClientStatus = iota + 1
+	csSynced
+	csStopped
+	csKilled ClientStatus = 0xff
+)
 
+const (
 	// Atomic operation status
-	aoNone        AOStatus = 1
-	aoStarted     AOStatus = 2
-	aoCommitting  AOStatus = 3
-	aoRollbacking AOStatus = 4
+	aoNone AOStatus = iota + 1
+	aoStarted
+	aoCommitting
+	aoRollbacking
 )
 
 var (
@@ -71,9 +82,9 @@ var (
 	// StrCommand for TCP commands description
 	StrCommand = map[Command]string{
 		CmdStart:         "Start",
-		CmdStartBookmark: "StartBookmark",
 		CmdStop:          "Stop",
 		CmdHeader:        "Header",
+		CmdStartBookmark: "StartBookmark",
 	}
 
 	// StrCommandErrors for TCP command errors description
@@ -280,12 +291,12 @@ func (s *StreamServer) StartAtomicOp() error {
 	// Check status of the server
 	if !s.started {
 		log.Errorf("AtomicOp not allowed. Server is not started")
-		return errors.New("atomicop not allowed, server is not started")
+		return ErrAtomicOpNotAllowed
 	}
 	// Check status of the atomic operation
 	if s.atomicOp.status == aoStarted {
 		log.Errorf("AtomicOp already started and in progress after entry %d", s.atomicOp.startEntry)
-		return errors.New("start atomicop not allowed, atomicop already started")
+		return ErrStartAtomicOpNotAllowed
 	}
 
 	s.atomicOp.status = aoStarted
@@ -329,7 +340,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	// Check atomic operation status
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Add stream entry not allowed, AtomicOp is not started")
-		return 0, errors.New("add stream entry not allowed atomicop is not started")
+		return 0, ErrAddEntryNotAllowed
 	}
 
 	// Generate data entry
@@ -367,7 +378,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	log.Infof("!!!Commit AtomicOp (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
-		return errors.New("commit not allowed, atomicop not in started state")
+		return ErrCommitNotAllowed
 	}
 
 	s.atomicOp.status = aoCommitting
@@ -402,7 +413,7 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	log.Infof("!!!Rollback AtomicOp (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
-		return errors.New("rollback not allowed, atomicop not in the started state")
+		return ErrRollbackNotAllowed
 	}
 
 	s.atomicOp.status = aoRollbacking
@@ -433,13 +444,13 @@ func (s *StreamServer) UpdateEntryData(entryNum uint64, etype EntryType, data []
 	// Check the entry number
 	if entryNum >= s.nextEntry {
 		log.Errorf("Invalid entry number [%d], it doesn't exist", entryNum)
-		return errors.New("invalid entry number, doesnt exist")
+		return ErrInvalidEntryNumber
 	}
 
 	// Check entry not in current atomic operation
 	if s.atomicOp.status != aoNone && entryNum >= s.atomicOp.startEntry {
 		log.Errorf("Entry number [%d] not allowed for update, it's in the current atomic operation", entryNum)
-		return errors.New("not allowed to update, it's in current atomic operation")
+		return ErrUpdateNotAllowed
 	}
 
 	// Update entry data in the stream file
@@ -552,7 +563,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				if cli.conn != nil {
 					_, err = cli.conn.Write(binaryEntry)
 				} else {
-					err = errors.New("error nil connection")
+					err = ErrNilConnection
 				}
 				if err != nil {
 					// Kill client connection
@@ -588,7 +599,7 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	case CmdStart:
 		if cli.status != csStopped {
 			log.Error("Stream to client already started!")
-			err = errors.New("client already started")
+			err = ErrClientAlreadyStarted
 			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
 		} else {
 			cli.status = csSyncing
@@ -601,7 +612,7 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	case CmdStartBookmark:
 		if cli.status != csStopped {
 			log.Error("Stream to client already started!")
-			err = errors.New("client already started")
+			err = ErrClientAlreadyStarted
 			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
 		} else {
 			cli.status = csSyncing
@@ -614,7 +625,7 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	case CmdStop:
 		if cli.status != csSynced {
 			log.Error("Stream to client already stopped!")
-			err = errors.New("client already stopped")
+			err = ErrClientAlreadyStopped
 			_ = s.sendResultEntry(uint32(CmdErrAlreadyStopped), StrCommandErrors[CmdErrAlreadyStopped], clientId)
 		} else {
 			cli.status = csStopped
@@ -624,15 +635,24 @@ func (s *StreamServer) processCommand(command Command, clientId string) error {
 	case CmdHeader:
 		if cli.status != csStopped {
 			log.Error("Header command not allowed, stream started!")
-			err = errors.New("header command not allowed")
+			err = ErrHeaderCommandNotAllowed
 			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
 		} else {
 			err = s.processCmdHeader(clientId)
 		}
 
+	case CmdEntry:
+		if cli.status != csStopped {
+			log.Error("Entry command not allowed, stream started!")
+			err = ErrEntryCommandNotAllowed
+			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], clientId)
+		} else {
+			err = s.processCmdEntry(clientId)
+		}
+
 	default:
 		log.Error("Invalid command!")
-		err = errors.New("invalid command")
+		err = ErrInvalidCommand
 		_ = s.sendResultEntry(uint32(CmdErrInvalidCommand), StrCommandErrors[CmdErrInvalidCommand], clientId)
 	}
 
@@ -654,7 +674,7 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 	// Check received param
 	if fromEntry > s.nextEntry {
 		log.Errorf("Start command invalid from entry %d for client %s", fromEntry, clientId)
-		err = errors.New("start command invalid param from entry")
+		err = ErrStartCommandInvalidParamFromEntry
 		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], clientId)
 		return err
 	}
@@ -695,7 +715,7 @@ func (s *StreamServer) processCmdStartBookmark(clientId string) error {
 	entryNum, err := s.bookmark.GetBookmark(bookmark)
 	if err != nil {
 		log.Errorf("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, clientId, err)
-		err = errors.New("startbookmark invalid param from bookmark")
+		err = ErrStartBookmarkInvalidParamFromBookmark
 		_ = s.sendResultEntry(uint32(CmdErrBadFromBookmark), StrCommandErrors[CmdErrBadFromBookmark], clientId)
 		return err
 	}
@@ -745,13 +765,53 @@ func (s *StreamServer) processCmdHeader(clientId string) error {
 	if conn != nil {
 		_, err = conn.Write(binaryHeader)
 	} else {
-		err = errors.New("error nil connection")
+		err = ErrNilConnection
 	}
 	if err != nil {
 		log.Warnf("Error sending header entry to %s: %v", clientId, err)
 		return err
 	}
 	return nil
+}
+
+// processCmdEntry processes the TCP Entry command from the clients
+func (s *StreamServer) processCmdEntry(clientId string) error {
+	// Read from entry number parameter
+	conn := s.clients[clientId].conn
+	entryNumber, err := readFullUint64(conn)
+	if err != nil {
+		return err
+	}
+
+	// Log
+	log.Infof("Client %s command Entry from %d", clientId, entryNumber)
+
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
+
+	// Get the requested entry
+	entry, err := s.GetEntry(entryNumber)
+	if err != nil {
+		return err
+	}
+	binaryEntry := encodeFileEntryToBinary(entry)
+
+	// Send header entry to the client
+	conn = s.clients[clientId].conn
+	if conn != nil {
+		_, err = conn.Write(binaryEntry)
+	} else {
+		err = ErrNilConnection
+	}
+	if err != nil {
+		log.Warnf("Error sending entry to %s: %v", clientId, err)
+		return err
+	}
+
+	return err
 }
 
 // streamingFromEntry sends to the client the stream data starting from the requested entry number
@@ -784,7 +844,7 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 		if conn != nil {
 			_, err = conn.Write(binaryEntry)
 		} else {
-			err = errors.New("error nil connection")
+			err = ErrNilConnection
 		}
 		if err != nil {
 			log.Warnf("Error sending entry %d to %s: %v", iterator.Entry.Number, clientId, err)
@@ -822,7 +882,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, clientI
 	if conn != nil {
 		_, err = conn.Write(binaryEntry)
 	} else {
-		err = errors.New("error nil connection")
+		err = ErrNilConnection
 	}
 	if err != nil {
 		log.Warnf("Error sending result entry to %s: %v", clientId, err)
@@ -913,7 +973,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 
 	if len(b) < FixedSizeResultEntry {
 		log.Error("Invalid binary result entry")
-		return e, errors.New("invalid binary result entry")
+		return e, ErrInvalidBinaryEntry
 	}
 
 	e.packetType = b[0]
@@ -923,7 +983,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 
 	if uint32(len(e.errorStr)) != e.length-FixedSizeResultEntry {
 		log.Error("Error decoding binary result entry")
-		return e, errors.New("error decoding binary result entry")
+		return e, ErrDecodingBinaryResultEntry
 	}
 
 	return e, nil
