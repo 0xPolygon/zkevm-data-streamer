@@ -1010,3 +1010,31 @@ func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []by
 
 	return nil
 }
+
+// truncateFile truncates file from an entry number onwards
+func (f *StreamFile) truncateFile(entryNum uint64) error {
+	// Create iterator and locate the entry in the file
+	iterator, err := f.iteratorFrom(entryNum, true)
+	if err != nil {
+		return err
+	}
+
+	// Current file position
+	curpos, err := iterator.file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		log.Errorf("Error seeking current pos: %v", err)
+		return err
+	}
+
+	// Update internal header
+	f.header.TotalEntries = entryNum
+	f.header.TotalLength = uint64(curpos)
+
+	// Write the header into the file (commit changes)
+	err = f.writeHeaderEntry()
+	if err != nil {
+		return nil
+	}
+
+	return nil
+}

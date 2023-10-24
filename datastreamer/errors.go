@@ -81,4 +81,6 @@ var (
 	ErrInvalidBinaryResultEntry = fmt.Errorf("invalid binary result entry")
 	// ErrDecodingBinaryResultEntry is returned when there is an error decoding binary result entry
 	ErrDecodingBinaryResultEntry = fmt.Errorf("error decoding binary result entry")
+	// ErrTruncateNotAllowed is returned when there is an atomic operation in progress
+	ErrTruncateNotAllowed = fmt.Errorf("truncate not allowed, atomic operation in progress")
 )

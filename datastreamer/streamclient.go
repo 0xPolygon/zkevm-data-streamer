@@ -12,6 +12,7 @@ const (
 	resultsBuffer = 32  // Buffers for the results channel
 	headersBuffer = 32  // Buffers for the headers channel
 	entriesBuffer = 128 // Buffers for the entries channel
+	dataBuffer    = 32  // Buffers for data command response
 )
 
 // ProcessEntryFunc type of the callback function to process the received entry
@@ -50,7 +51,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		results: make(chan ResultEntry, resultsBuffer),
 		headers: make(chan HeaderEntry, headersBuffer),
 		entries: make(chan FileEntry, entriesBuffer),
-		entry:   make(chan FileEntry),
+		entry:   make(chan FileEntry, dataBuffer),
 
 		relayServer: nil,
 	}
@@ -104,7 +105,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		return err
 	}
 
-	// Send the Start and StartBookmark parameters
+	// Send the command parameters
 	switch cmd {
 	case CmdStart:
 		log.Infof("%s ...from entry %d", c.Id, c.FromEntry)
@@ -132,18 +133,23 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// Get the command result
+	r := c.getResult(cmd)
+	if r.errorNum != uint32(CmdErrOK) {
+		return ErrResultCommandError
+	}
+
+	// Get the data result
+	switch cmd {
+	case CmdEntry:
 		c.Entry = c.getEntry()
 		return nil
 	case CmdHeader:
 		h := c.getHeader()
 		c.Header = h
 		return nil
-	}
-
-	// Get command result
-	r := c.getResult(cmd)
-	if r.errorNum != uint32(CmdErrOK) {
-		return ErrResultCommandError
 	}
 
 	return nil

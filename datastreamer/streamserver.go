@@ -34,7 +34,6 @@ type CommandError uint32
 const (
 	maxConnections = 100 // Maximum number of connected clients
 	streamBuffer   = 256 // Buffers for the stream channel
-
 )
 
 const (
@@ -85,6 +84,7 @@ var (
 		CmdStop:          "Stop",
 		CmdHeader:        "Header",
 		CmdStartBookmark: "StartBookmark",
+		CmdEntry:         "Entry",
 	}
 
 	// StrCommandErrors for TCP command errors description
@@ -435,7 +435,24 @@ func (s *StreamServer) RollbackAtomicOp() error {
 
 // TruncateFile truncates stream data file from an entry number onwards
 func (s *StreamServer) TruncateFile(entryNum uint64) error {
-	// TODO
+	// Check the entry number
+	if entryNum >= s.nextEntry {
+		log.Errorf("Invalid entry number [%d], it doesn't exist", entryNum)
+		return ErrInvalidEntryNumber
+	}
+
+	// Check atomic operation is not in progress
+	if s.atomicOp.status != aoNone {
+		log.Errorf("Truncate not allowed, atomic operation in progress")
+		return ErrTruncateNotAllowed
+	}
+
+	// Truncate entries in the file
+	err := s.streamFile.truncateFile(entryNum)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -785,6 +802,12 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 
 	// Log
 	log.Infof("Client %s command Entry %d", clientId, entryNumber)
+
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", clientId)
+	if err != nil {
+		return err
+	}
 
 	// Get the requested entry
 	entry, err := s.GetEntry(entryNumber)
