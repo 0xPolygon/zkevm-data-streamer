@@ -50,7 +50,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		results: make(chan ResultEntry, resultsBuffer),
 		headers: make(chan HeaderEntry, headersBuffer),
 		entries: make(chan FileEntry, entriesBuffer),
-		entry:   make(chan FileEntry),
+		entry:   make(chan FileEntry, entriesBuffer),
 
 		relayServer: nil,
 	}
