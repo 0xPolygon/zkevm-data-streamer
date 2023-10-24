@@ -39,9 +39,7 @@ func (t TestEntry) Decode(bytes []byte) TestEntry {
 }
 
 func (t TestBookmark) Encode() []byte {
-	bytes := make([]byte, 0)
-	bytes = append(bytes, t.FieldA...)
-	return bytes
+	return t.FieldA
 }
 
 var (
@@ -145,11 +143,11 @@ func TestClient(t *testing.T) {
 	client, err := datastreamer.NewClient(fmt.Sprintf("localhost:%d", config.Port), streamType)
 	require.NoError(t, err)
 
-	// client.FromBookmark = testBookmark.FieldA
-	// err = client.ExecCommand(datastreamer.CmdBookmark)
-	// require.NoError(t, err)
-
 	err = client.Start()
+	require.NoError(t, err)
+
+	client.FromBookmark = testBookmark.FieldA
+	err = client.ExecCommand(datastreamer.CmdBookmark)
 	require.NoError(t, err)
 
 	client.FromEntry = 2
