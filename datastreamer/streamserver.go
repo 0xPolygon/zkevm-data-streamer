@@ -438,13 +438,13 @@ func (s *StreamServer) TruncateFile(entryNum uint64) error {
 	// Check the entry number
 	if entryNum >= s.nextEntry {
 		log.Errorf("Invalid entry number [%d], it doesn't exist", entryNum)
-		return errors.New("invalid entry number, doesnt exist")
+		return ErrInvalidEntryNumber
 	}
 
 	// Check atomic operation is not in progress
 	if s.atomicOp.status != aoNone {
 		log.Errorf("Truncate not allowed, atomic operation in progress")
-		return errors.New("truncate not allowed, atomic operation in progress")
+		return ErrTruncateNotAllowed
 	}
 
 	// Truncate entries in the file

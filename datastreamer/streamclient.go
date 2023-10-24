@@ -104,7 +104,7 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		return err
 	}
 
-	// Send the Start and StartBookmark parameters
+	// Send the command parameters
 	switch cmd {
 	case CmdStart:
 		log.Infof("%s ...from entry %d", c.Id, c.FromEntry)
@@ -132,18 +132,23 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// Get the command result
+	r := c.getResult(cmd)
+	if r.errorNum != uint32(CmdErrOK) {
+		return ErrResultCommandError
+	}
+
+	// Get the data result
+	switch cmd {
+	case CmdEntry:
 		c.Entry = c.getEntry()
 		return nil
 	case CmdHeader:
 		h := c.getHeader()
 		c.Header = h
 		return nil
-	}
-
-	// Get command result
-	r := c.getResult(cmd)
-	if r.errorNum != uint32(CmdErrOK) {
-		return ErrResultCommandError
 	}
 
 	return nil
