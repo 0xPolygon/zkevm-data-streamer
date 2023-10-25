@@ -19,6 +19,10 @@ type TestEntry struct {
 	FieldC []byte      // n bytes
 }
 
+type TestBookmark struct {
+	FieldA []byte
+}
+
 func (t TestEntry) Encode() []byte {
 	bytes := make([]byte, 0)
 	bytes = binary.LittleEndian.AppendUint64(bytes, t.FieldA)
@@ -32,6 +36,10 @@ func (t TestEntry) Decode(bytes []byte) TestEntry {
 	t.FieldB = common.BytesToHash(bytes[8:40])
 	t.FieldC = bytes[40:]
 	return t
+}
+
+func (t TestBookmark) Encode() []byte {
+	return t.FieldA
 }
 
 var (
@@ -59,6 +67,10 @@ var (
 		FieldA: 456,
 		FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
 		FieldC: []byte("test entry 2"),
+	}
+
+	testBookmark = TestBookmark{
+		FieldA: []byte{0, 1, 0, 0, 0, 0, 0, 0, 0},
 	}
 )
 
@@ -106,19 +118,23 @@ func TestServer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should succeed
-	entryNumber, err = streamServer.AddStreamEntry(testEntryType, testEntry.Encode())
+	entryNumber, err = streamServer.AddStreamBookmark(testBookmark.Encode())
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), entryNumber)
 
-	entryNumber, err = streamServer.AddStreamEntry(testEntryType, testEntry2.Encode())
+	entryNumber, err = streamServer.AddStreamEntry(testEntryType, testEntry.Encode())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), entryNumber)
+
+	entryNumber, err = streamServer.AddStreamEntry(testEntryType, testEntry2.Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), entryNumber)
 
 	err = streamServer.CommitAtomicOp()
 	require.NoError(t, err)
 
 	// Get the second entry
-	entry, err := streamServer.GetEntry(1)
+	entry, err := streamServer.GetEntry(2)
 	require.NoError(t, err)
 	require.Equal(t, testEntry2, TestEntry{}.Decode(entry.Data))
 }
@@ -130,13 +146,18 @@ func TestClient(t *testing.T) {
 	err = client.Start()
 	require.NoError(t, err)
 
-	client.FromEntry = 1
+	client.FromBookmark = testBookmark.Encode()
+	err = client.ExecCommand(datastreamer.CmdBookmark)
+	require.NoError(t, err)
+	require.Equal(t, testEntry.Encode(), client.Entry.Data)
+
+	client.FromEntry = 2
 	err = client.ExecCommand(datastreamer.CmdEntry)
 	require.NoError(t, err)
 
 	require.Equal(t, testEntry2, TestEntry{}.Decode(client.Entry.Data))
 
-	client.FromEntry = 0
+	client.FromEntry = 1
 	err = client.ExecCommand(datastreamer.CmdEntry)
 	require.NoError(t, err)
 	require.Equal(t, testEntry, TestEntry{}.Decode(client.Entry.Data))

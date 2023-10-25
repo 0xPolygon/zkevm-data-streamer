@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	resultsBuffer = 32  // Buffers for the results channel
-	headersBuffer = 32  // Buffers for the headers channel
-	entriesBuffer = 128 // Buffers for the entries channel
-	dataBuffer    = 32  // Buffers for data command response
+	resultsBuffer  = 32  // Buffers for the results channel
+	headersBuffer  = 32  // Buffers for the headers channel
+	entriesBuffer  = 128 // Buffers for the entries channel
+	entryRspBuffer = 32  // Buffers for data command response
 )
 
 // ProcessEntryFunc type of the callback function to process the received entry
@@ -24,16 +24,17 @@ type StreamClient struct {
 	streamType StreamType
 	conn       net.Conn
 	Id         string // Client id
+	started    bool   // Flag client started
 
 	FromEntry    uint64      // Set starting entry number for the Start command
 	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
 	Header       HeaderEntry // Header info received from the Header command
 	Entry        FileEntry   // Entry info received from the Entry command
 
-	results chan ResultEntry // Channel to read command results
-	headers chan HeaderEntry // Channel to read header entries from the command Header
-	entries chan FileEntry   // Channel to read data entries from the streaming
-	entry   chan FileEntry   // Channel to read result data entries from the streaming
+	results  chan ResultEntry // Channel to read command results
+	headers  chan HeaderEntry // Channel to read header entries from the command Header
+	entries  chan FileEntry   // Channel to read data entries from the streaming
+	entryRsp chan FileEntry   // Channel to read data entries from the commands response
 
 	processEntry ProcessEntryFunc // Callback function to process the entry
 	relayServer  *StreamServer    // Only used by the client on the stream relay server
@@ -46,12 +47,13 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		server:     server,
 		streamType: streamType,
 		Id:         "",
+		started:    false,
 		FromEntry:  0,
 
-		results: make(chan ResultEntry, resultsBuffer),
-		headers: make(chan HeaderEntry, headersBuffer),
-		entries: make(chan FileEntry, entriesBuffer),
-		entry:   make(chan FileEntry, dataBuffer),
+		results:  make(chan ResultEntry, resultsBuffer),
+		headers:  make(chan HeaderEntry, headersBuffer),
+		entries:  make(chan FileEntry, entriesBuffer),
+		entryRsp: make(chan FileEntry, entryRspBuffer),
 
 		relayServer: nil,
 	}
@@ -81,12 +83,21 @@ func (c *StreamClient) Start() error {
 	// Goroutine to consume streaming entries
 	go c.getStreaming()
 
+	// Flag stared
+	c.started = true
+
 	return nil
 }
 
 // ExecCommand executes a valid client TCP command
 func (c *StreamClient) ExecCommand(cmd Command) error {
 	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
+
+	// Check status of the client
+	if !c.started {
+		log.Errorf("Execute command not allowed. Client is not started")
+		return ErrExecCommandNotAllowed
+	}
 
 	// Check valid command
 	if !cmd.IsACommand() {
@@ -133,6 +144,18 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		if err != nil {
 			return err
 		}
+	case CmdBookmark:
+		log.Infof("%s ...get bookmark [%v]", c.Id, c.FromBookmark)
+		// Send bookmark length
+		err = writeFullUint32(uint32(len(c.FromBookmark)), c.conn)
+		if err != nil {
+			return err
+		}
+		// Send bookmark to retrieve
+		err = writeFullBytes(c.FromBookmark, c.conn)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Get the command result
@@ -141,15 +164,17 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		return ErrResultCommandError
 	}
 
-	// Get the data result
+	// Get the data response
 	switch cmd {
-	case CmdEntry:
-		c.Entry = c.getEntry()
-		return nil
 	case CmdHeader:
 		h := c.getHeader()
 		c.Header = h
-		return nil
+	case CmdEntry:
+		e := c.getEntry()
+		c.Entry = e
+	case CmdBookmark:
+		e := c.getEntry()
+		c.Entry = e
 	}
 
 	return nil
@@ -354,13 +379,13 @@ func (c *StreamClient) readEntries() {
 			// Send data to results channel
 			c.results <- r
 
-		case PtDataResult:
+		case PtDataRsp:
 			// Read result entry data
 			r, err := c.readDataEntry()
 			if err != nil {
 				return
 			}
-			c.entry <- r
+			c.entryRsp <- r
 
 		case PtHeader:
 			// Read header entry data
@@ -403,9 +428,9 @@ func (c *StreamClient) getHeader() HeaderEntry {
 	return h
 }
 
-// getEntry consumes a entry
+// getEntry consumes a entry from commands response
 func (c *StreamClient) getEntry() FileEntry {
-	e := <-c.entry
+	e := <-c.entryRsp
 	log.Infof("%s Entry received info: Number[%d]", c.Id, e.Number)
 	return e
 }

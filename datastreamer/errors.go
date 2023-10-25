@@ -83,4 +83,8 @@ var (
 	ErrDecodingBinaryResultEntry = fmt.Errorf("error decoding binary result entry")
 	// ErrTruncateNotAllowed is returned when there is an atomic operation in progress
 	ErrTruncateNotAllowed = fmt.Errorf("truncate not allowed, atomic operation in progress")
+	// ErrBookmarkCommandNotAllowed is returned when the bookmark command is not allowed
+	ErrBookmarkCommandNotAllowed = fmt.Errorf("bookmark command not allowed")
+	// ErrExecCommandNotAllowed is returned when execute TCP command is not allowed
+	ErrExecCommandNotAllowed = fmt.Errorf("execute command not allowed, client is not started")
 )
