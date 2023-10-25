@@ -24,6 +24,7 @@ type StreamClient struct {
 	streamType StreamType
 	conn       net.Conn
 	Id         string // Client id
+	started    bool   // Flag client started
 
 	FromEntry    uint64      // Set starting entry number for the Start command
 	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
@@ -46,6 +47,7 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		server:     server,
 		streamType: streamType,
 		Id:         "",
+		started:    false,
 		FromEntry:  0,
 
 		results:  make(chan ResultEntry, resultsBuffer),
@@ -81,12 +83,21 @@ func (c *StreamClient) Start() error {
 	// Goroutine to consume streaming entries
 	go c.getStreaming()
 
+	// Flag stared
+	c.started = true
+
 	return nil
 }
 
 // ExecCommand executes a valid client TCP command
 func (c *StreamClient) ExecCommand(cmd Command) error {
 	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
+
+	// Check status of the client
+	if !c.started {
+		log.Errorf("Execute command not allowed. Client is not started")
+		return ErrExecCommandNotAllowed
+	}
 
 	// Check valid command
 	if !cmd.IsACommand() {

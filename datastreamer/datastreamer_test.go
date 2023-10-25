@@ -146,9 +146,10 @@ func TestClient(t *testing.T) {
 	err = client.Start()
 	require.NoError(t, err)
 
-	client.FromBookmark = testBookmark.FieldA
+	client.FromBookmark = testBookmark.Encode()
 	err = client.ExecCommand(datastreamer.CmdBookmark)
 	require.NoError(t, err)
+	require.Equal(t, testEntry.Encode(), client.Entry.Data)
 
 	client.FromEntry = 2
 	err = client.ExecCommand(datastreamer.CmdEntry)
