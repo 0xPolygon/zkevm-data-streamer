@@ -66,7 +66,7 @@ func NewClient(server string, streamType StreamType) (*StreamClient, error) {
 	}
 
 	// Set default callback function to process entry
-	c.SetProcessEntryFunc(PrintReceivedEntry, c.relayServer)
+	c.setProcessEntryFunc(PrintReceivedEntry, c.relayServer)
 
 	return &c, nil
 }
@@ -523,7 +523,12 @@ func (c *StreamClient) getStreaming() {
 }
 
 // SetProcessEntryFunc sets the callback function to process entry
-func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) {
+func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc) {
+	c.setProcessEntryFunc(f, nil)
+}
+
+// setProcessEntryFunc sets the callback function to process entry with server parameter
+func (c *StreamClient) setProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) {
 	c.processEntry = f
 	c.relayServer = s
 }

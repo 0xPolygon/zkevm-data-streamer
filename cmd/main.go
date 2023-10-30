@@ -337,7 +337,7 @@ func runClient(ctx *cli.Context) error {
 	}
 
 	// Set process entry callback function
-	// c.SetProcessEntryFunc(printEntryNum, nil)
+	c.SetProcessEntryFunc(printEntryNum)
 
 	// Start client (connect to the server)
 	err = c.Start()
@@ -415,10 +415,10 @@ func runClient(ctx *cli.Context) error {
 }
 
 // printEntryNum prints basic data of the entry
-// func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
-// 	log.Infof("CUSTOM PROCESS: Entry[%d] Type[%d] Length[%d]", e.Number, e.Type, e.Length)
-// 	return nil
-// }
+func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	log.Infof("PROCESS entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+	return nil
+}
 
 // runRelay runs a local datastream relay
 func runRelay(ctx *cli.Context) error {

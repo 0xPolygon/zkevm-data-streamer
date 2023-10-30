@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -106,9 +107,10 @@ type StreamServer struct {
 	fileName string // Stream file name
 	started  bool   // Flag server started
 
-	streamType StreamType
-	ln         net.Listener
-	clients    map[string]*client
+	streamType   StreamType
+	ln           net.Listener
+	clients      map[string]*client
+	mutexClients sync.Mutex // Mutex for write access to clients map
 
 	nextEntry  uint64        // Next sequential entry number
 	atomicOp   streamAO      // Current in progress (if any) atomic operation
@@ -245,10 +247,12 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	clientId := conn.RemoteAddr().String()
 	log.Debugf("New connection: %s", clientId)
 
+	s.mutexClients.Lock()
 	s.clients[clientId] = &client{
 		conn:   conn,
 		status: csStopped,
 	}
+	s.mutexClients.Unlock()
 
 	for {
 		// Read command
@@ -599,11 +603,13 @@ func (s *StreamServer) broadcastAtomicOp() {
 func (s *StreamServer) killClient(clientId string) {
 	if s.clients[clientId] != nil {
 		if s.clients[clientId].status != csKilled {
+			s.mutexClients.Lock()
 			s.clients[clientId].status = csKilled
 			if s.clients[clientId].conn != nil {
 				s.clients[clientId].conn.Close()
 			}
 			delete(s.clients, clientId)
+			s.mutexClients.Unlock()
 		}
 	}
 }

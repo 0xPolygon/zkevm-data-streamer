@@ -28,7 +28,7 @@ func NewRelay(server string, port uint16, streamType StreamType, fileName string
 	}
 
 	// Set function to process entry
-	r.client.SetProcessEntryFunc(relayEntry, r.server)
+	r.client.setProcessEntryFunc(relayEntry, r.server)
 
 	return &r, nil
 }
