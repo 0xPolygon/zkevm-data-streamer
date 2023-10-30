@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
@@ -25,6 +26,8 @@ type StreamClient struct {
 	conn       net.Conn
 	Id         string // Client id
 	started    bool   // Flag client started
+	connected  bool   // Flag client connected to server
+	streaming  bool   // Flag client streaming started
 
 	FromEntry    uint64      // Set starting entry number for the Start command
 	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
@@ -36,18 +39,21 @@ type StreamClient struct {
 	entries  chan FileEntry   // Channel to read data entries from the streaming
 	entryRsp chan FileEntry   // Channel to read data entries from the commands response
 
+	nextEntry    uint64           // Next entry number to receive from streaming
 	processEntry ProcessEntryFunc // Callback function to process the entry
 	relayServer  *StreamServer    // Only used by the client on the stream relay server
 }
 
 // NewClient creates a new data stream client
-func NewClient(server string, streamType StreamType) (StreamClient, error) {
+func NewClient(server string, streamType StreamType) (*StreamClient, error) {
 	// Create the client data stream
 	c := StreamClient{
 		server:     server,
 		streamType: streamType,
 		Id:         "",
 		started:    false,
+		connected:  false,
+		streaming:  false,
 		FromEntry:  0,
 
 		results:  make(chan ResultEntry, resultsBuffer),
@@ -55,27 +61,20 @@ func NewClient(server string, streamType StreamType) (StreamClient, error) {
 		entries:  make(chan FileEntry, entriesBuffer),
 		entryRsp: make(chan FileEntry, entryRspBuffer),
 
+		nextEntry:   0,
 		relayServer: nil,
 	}
 
 	// Set default callback function to process entry
 	c.SetProcessEntryFunc(PrintReceivedEntry, c.relayServer)
 
-	return c, nil
+	return &c, nil
 }
 
 // Start connects to the data stream server and starts getting data from the server
 func (c *StreamClient) Start() error {
 	// Connect to server
-	var err error
-	c.conn, err = net.Dial("tcp", c.server)
-	if err != nil {
-		log.Errorf("Error connecting to server %s: %v", c.server, err)
-		return err
-	}
-
-	c.Id = c.conn.LocalAddr().String()
-	log.Infof("%s Connected to server: %s", c.Id, c.server)
+	c.connectServer()
 
 	// Goroutine to read from the server all entry types
 	go c.readEntries()
@@ -89,8 +88,57 @@ func (c *StreamClient) Start() error {
 	return nil
 }
 
+// connectServer waits until the server connection is established and returns if a command result is pending
+func (c *StreamClient) connectServer() bool {
+	var err error
+
+	// Connect to server
+	for !c.connected {
+		c.conn, err = net.Dial("tcp", c.server)
+		if err != nil {
+			log.Infof("Error connecting to server %s: %v", c.server, err)
+			time.Sleep(5 * time.Second) // nolint:gomnd
+			continue
+		} else {
+			// Connected
+			c.connected = true
+			c.Id = c.conn.LocalAddr().String()
+			log.Infof("%s Connected to server: %s", c.Id, c.server)
+
+			// Restore streaming
+			if c.streaming {
+				c.FromEntry = c.nextEntry
+				err = c.execCommand(CmdStart, true)
+				if err != nil {
+					c.closeConnection()
+					time.Sleep(5 * time.Second) // nolint:gomnd
+					continue
+				}
+				return true
+			} else {
+				return false
+			}
+		}
+	}
+	return false
+}
+
+// closeConnection closes connection to the server
+func (c *StreamClient) closeConnection() {
+	if c.conn != nil {
+		log.Infof("%s Close connection", c.Id)
+		c.conn.Close()
+	}
+	c.connected = false
+}
+
 // ExecCommand executes a valid client TCP command
 func (c *StreamClient) ExecCommand(cmd Command) error {
+	return c.execCommand(cmd, false)
+}
+
+// execCommand executes a valid client TCP command with deferred command result possibility
+func (c *StreamClient) execCommand(cmd Command, deferredResult bool) error {
 	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
 
 	// Check status of the client
@@ -159,13 +207,21 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 	}
 
 	// Get the command result
-	r := c.getResult(cmd)
-	if r.errorNum != uint32(CmdErrOK) {
-		return ErrResultCommandError
+	if !deferredResult {
+		r := c.getResult(cmd)
+		if r.errorNum != uint32(CmdErrOK) {
+			return ErrResultCommandError
+		}
 	}
 
-	// Get the data response
+	// Get the data response and update streaming flag
 	switch cmd {
+	case CmdStart:
+		c.streaming = true
+	case CmdStartBookmark:
+		c.streaming = true
+	case CmdStop:
+		c.streaming = false
 	case CmdHeader:
 		h := c.getHeader()
 		c.Header = h
@@ -353,9 +409,12 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 
 // readEntries reads from the server all type of packets
 func (c *StreamClient) readEntries() {
-	defer c.conn.Close()
+	defer c.closeConnection()
 
 	for {
+		// Wait for connection
+		deferredResult := c.connectServer()
+
 		// Read packet type
 		packet := make([]byte, 1)
 		_, err := io.ReadFull(c.conn, packet)
@@ -365,7 +424,8 @@ func (c *StreamClient) readEntries() {
 			} else {
 				log.Errorf("%s Error reading from server: %v", c.Id, err)
 			}
-			return
+			c.closeConnection()
+			continue
 		}
 
 		// Manage packet type
@@ -374,16 +434,27 @@ func (c *StreamClient) readEntries() {
 			// Read result entry data
 			r, err := c.readResultEntry()
 			if err != nil {
-				return
+				c.closeConnection()
+				continue
 			}
 			// Send data to results channel
 			c.results <- r
+			// Get the command deferred result
+			if deferredResult {
+				r := c.getResult(CmdStart)
+				if r.errorNum != uint32(CmdErrOK) {
+					c.closeConnection()
+					time.Sleep(5 * time.Second) // nolint:gomnd
+					continue
+				}
+			}
 
 		case PtDataRsp:
 			// Read result entry data
 			r, err := c.readDataEntry()
 			if err != nil {
-				return
+				c.closeConnection()
+				continue
 			}
 			c.entryRsp <- r
 
@@ -391,7 +462,8 @@ func (c *StreamClient) readEntries() {
 			// Read header entry data
 			h, err := c.readHeaderEntry()
 			if err != nil {
-				return
+				c.closeConnection()
+				continue
 			}
 			// Send data to headers channel
 			c.headers <- h
@@ -400,7 +472,8 @@ func (c *StreamClient) readEntries() {
 			// Read file/stream entry data
 			e, err := c.readDataEntry()
 			if err != nil {
-				return
+				c.closeConnection()
+				continue
 			}
 			// Send data to stream entries channel
 			c.entries <- e
@@ -439,6 +512,7 @@ func (c *StreamClient) getEntry() FileEntry {
 func (c *StreamClient) getStreaming() {
 	for {
 		e := <-c.entries
+		c.nextEntry = e.Number + 1
 
 		// Process the data entry
 		err := c.processEntry(&e, c, c.relayServer)

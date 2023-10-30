@@ -351,6 +351,24 @@ func runClient(ctx *cli.Context) error {
 		return err
 	}
 
+	// Command bookmark
+	// var fromBook int
+	// if fromBookmark != "none" {
+	// 	fromBook, err = strconv.Atoi(fromBookmark)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// } else {
+	// 	fromBook = 0
+	// }
+	// bookmark := []byte{0} // nolint:gomnd
+	// bookmark = binary.LittleEndian.AppendUint64(bookmark, uint64(fromBook))
+	// c.FromBookmark = bookmark
+	// err = c.ExecCommand(datastreamer.CmdBookmark)
+	// if err != nil {
+	// 	return err
+	// }
+
 	if fromBookmark != "none" {
 		// Command StartBookmark: Sync and start streaming receive from bookmark
 		fromBookNum, err := strconv.Atoi(fromBookmark)

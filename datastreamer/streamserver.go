@@ -139,7 +139,7 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamServer, error) {
+func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:     port,
@@ -174,7 +174,7 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 	var err error
 	s.streamFile, err = PrepareStreamFile(s.fileName, s.streamType)
 	if err != nil {
-		return s, err
+		return nil, err
 	}
 
 	// Initialize the data entry number
@@ -184,10 +184,10 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 	name := s.fileName[0:strings.IndexRune(s.fileName, '.')] + ".db"
 	s.bookmark, err = PrepareBookmark(name)
 	if err != nil {
-		return s, err
+		return &s, err
 	}
 
-	return s, nil
+	return &s, nil
 }
 
 // Start opens access to TCP clients and starts broadcasting

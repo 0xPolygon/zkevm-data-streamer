@@ -53,7 +53,7 @@ var (
 		},
 	}
 	leveldb       = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
-	streamServer  datastreamer.StreamServer
+	streamServer  *datastreamer.StreamServer
 	streamType    = datastreamer.StreamType(1)
 	testEntryType = datastreamer.EntryType(1)
 
