@@ -171,9 +171,15 @@ func (c *StreamClient) ExecCommand(cmd Command) error {
 		c.Header = h
 	case CmdEntry:
 		e := c.getEntry()
+		if e.Type == EntryTypeNotFound {
+			return ErrEntryNotFound
+		}
 		c.Entry = e
 	case CmdBookmark:
 		e := c.getEntry()
+		if e.Type == EntryTypeNotFound {
+			return ErrEntryNotFound
+		}
 		c.Entry = e
 	}
 

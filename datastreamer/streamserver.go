@@ -3,6 +3,7 @@ package datastreamer
 import (
 	"encoding/binary"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -30,6 +31,9 @@ type StreamType uint64
 
 // CommandError type for the command responses
 type CommandError uint32
+
+// EntryTypeNotFound is used to indicate that the entry type is not found
+const EntryTypeNotFound = math.MaxUint32
 
 const (
 	maxConnections = 100 // Maximum number of connected clients
@@ -823,7 +827,10 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 	// Get the requested entry
 	entry, err := s.GetEntry(entryNumber)
 	if err != nil {
-		return err
+		log.Errorf("Error getting entry %d: %v", entryNumber, err)
+		entry = FileEntry{}
+		entry.Length = FixedSizeFileEntry
+		entry.Type = EntryTypeNotFound
 	}
 	entry.packetType = PtDataRsp
 	binaryEntry := encodeFileEntryToBinary(entry)
@@ -870,7 +877,10 @@ func (s *StreamServer) processCmdBookmark(clientId string) error {
 	// Get the requested bookmark
 	entry, err := s.GetFirstEventAfterBookmark(bookmark)
 	if err != nil {
-		return err
+		log.Errorf("Error getting bookmark %v: %v", bookmark, err)
+		entry = FileEntry{}
+		entry.Length = FixedSizeFileEntry
+		entry.Type = EntryTypeNotFound
 	}
 	entry.packetType = PtDataRsp
 	binaryEntry := encodeFileEntryToBinary(entry)
