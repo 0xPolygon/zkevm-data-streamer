@@ -242,8 +242,10 @@ USAGE:
 
 OPTIONS:
    --server value        datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
-   --from value          entry number to start the sync from (latest|0..N) (default: latest)
-   --frombookmark value  bookmark to start the sync from (0..N) (has preference over --from parameter)
+   --from value          entry number to start the sync/streaming from (latest|0..N) (default: latest)
+   --frombookmark value  bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)
+   --entry value         entry number to query data (0..N)
+   --bookmark value      entry bookmark to query entry data pointed by it (0..N)
    --log value           log level (debug|info|warn|error) (default: info)
    --help, -h            show help
 ```
@@ -254,6 +256,29 @@ Run a datastream client with default parameters (server: `127.0.0.1:6900`, from:
 Or run a datastream client with custom parameters:
 ```
 ./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
+```
+### RELAY
+Use the help option to check available parameters for the relay command:
+```
+./dsdemo help relay
+```
+```
+NAME:
+   dsdemo relay - Run datastream relay
+
+USAGE:
+   dsdemo relay [command options] [arguments...]
+
+OPTIONS:
+   --server value  datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
+   --port value    exposed port for clients to connect (default: 7900)
+   --file value    relay data file name (*.bin) (default: datarelay.bin)
+   --log value     log level (debug|info|warn|error) (default: info)
+   --help, -h      show help
+```
+Run a datastream relay with default parameters (server: `127.0.0.1:6900`, port: `7900`, file: `datarelay.bin`, log: `info`)
+```
+./dsdemo relay
 ```
 
 ## USE CASE: zkEVM SEQUENCER ENTRIES

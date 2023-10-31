@@ -291,9 +291,9 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 // StartAtomicOp starts a new atomic operation
 func (s *StreamServer) StartAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Infof("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!!!Start AtomicOp (%d)", s.nextEntry)
+	log.Infof("!AtomicOp START (%d)", s.nextEntry)
 	// Check status of the server
 	if !s.started {
 		log.Errorf("AtomicOp not allowed. Server is not started")
@@ -313,7 +313,7 @@ func (s *StreamServer) StartAtomicOp() error {
 // AddStreamEntry adds a new entry in the current atomic operation
 func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, error) {
 	start := time.Now().UnixNano()
-	defer log.Infof("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
 
 	// Add to the stream file
 	entryNum, err := s.addStream("Data", etype, data)
@@ -324,7 +324,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 // AddStreamBookmark adds a new bookmark in the current atomic operation
 func (s *StreamServer) AddStreamBookmark(bookmark []byte) (uint64, error) {
 	start := time.Now().UnixNano()
-	defer log.Infof("AddStreamBookmark process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("AddStreamBookmark process time: %vns", time.Now().UnixNano()-start)
 
 	// Add to the stream file
 	entryNum, err := s.addStream("Bookmark", EtBookmark, bookmark)
@@ -359,7 +359,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	}
 
 	// Log data entry fields
-	log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
+	log.Debugf("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
 
 	// Update header (in memory) and write data entry into the file
 	err := s.streamFile.AddFileEntry(e)
@@ -379,9 +379,9 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 // CommitAtomicOp commits the current atomic operation and streams it to the clients
 func (s *StreamServer) CommitAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!!!Commit AtomicOp (%d)", s.atomicOp.startEntry)
+	log.Infof("!AtomicOp COMMIT (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
 		return ErrCommitNotAllowed
@@ -414,9 +414,9 @@ func (s *StreamServer) CommitAtomicOp() error {
 // RollbackAtomicOp cancels the current atomic operation and rollbacks the changes
 func (s *StreamServer) RollbackAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Infof("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!!!Rollback AtomicOp (%d)", s.atomicOp.startEntry)
+	log.Infof("!AtomicOp ROLLBACK (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
 		return ErrRollbackNotAllowed
@@ -570,9 +570,9 @@ func (s *StreamServer) broadcastAtomicOp() {
 		start := time.Now().UnixMilli()
 
 		// For each connected and started client
-		log.Infof("STREAM clients: %d, AtomicOP entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Infof("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
 		for id, cli := range s.clients {
-			log.Infof("Stream client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
+			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
 				continue
 			}
@@ -595,7 +595,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 			}
 		}
-		log.Infof("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
+		log.Debugf("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
 	}
 }
 
