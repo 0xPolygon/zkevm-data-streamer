@@ -115,8 +115,8 @@ type StreamServer struct {
 	nextEntry  uint64        // Next sequential entry number
 	atomicOp   streamAO      // Current in progress (if any) atomic operation
 	stream     chan streamAO // Channel to stream committed atomic operations
-	streamFile StreamFile
-	bookmark   StreamBookmark
+	streamFile *StreamFile
+	bookmark   *StreamBookmark
 }
 
 // streamAO type to manage atomic operations
@@ -174,7 +174,7 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 
 	// Open (or create) the data stream file
 	var err error
-	s.streamFile, err = PrepareStreamFile(s.fileName, s.streamType)
+	s.streamFile, err = NewStreamFile(s.fileName, s.streamType)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 
 	// Open (or create) the bookmarks DB
 	name := s.fileName[0:strings.IndexRune(s.fileName, '.')] + ".db"
-	s.bookmark, err = PrepareBookmark(name)
+	s.bookmark, err = NewBookmark(name)
 	if err != nil {
 		return &s, err
 	}
@@ -707,7 +707,7 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 
 	// Check received param
 	if fromEntry > s.nextEntry {
-		log.Errorf("Start command invalid from entry %d for client %s", fromEntry, clientId)
+		log.Infof("Start command invalid from entry %d for client %s", fromEntry, clientId)
 		err = ErrStartCommandInvalidParamFromEntry
 		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], clientId)
 		return err
@@ -748,7 +748,7 @@ func (s *StreamServer) processCmdStartBookmark(clientId string) error {
 	// Get bookmark
 	entryNum, err := s.bookmark.GetBookmark(bookmark)
 	if err != nil {
-		log.Errorf("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, clientId, err)
+		log.Infof("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, clientId, err)
 		err = ErrStartBookmarkInvalidParamFromBookmark
 		_ = s.sendResultEntry(uint32(CmdErrBadFromBookmark), StrCommandErrors[CmdErrBadFromBookmark], clientId)
 		return err
