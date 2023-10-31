@@ -335,8 +335,8 @@ func (f *StreamFile) getHeaderEntry() HeaderEntry {
 	return f.writtenHead
 }
 
-// printHeaderEntry prints file header information
-func printHeaderEntry(e HeaderEntry) {
+// PrintHeaderEntry prints file header information
+func PrintHeaderEntry(e HeaderEntry) {
 	log.Info("--- HEADER ENTRY -------------------------")
 	log.Infof("packetType: [%d]", e.packetType)
 	log.Infof("headerLength: [%d]", e.headLength)
@@ -616,7 +616,7 @@ func printStreamFile(f *StreamFile) {
 	log.Infof("streamType: [%d]", f.streamType)
 	log.Infof("maxLength: [%d]", f.maxLength)
 	log.Infof("numDataPages=[%d]", (f.maxLength-pageHeaderSize)/pageDataSize)
-	printHeaderEntry(f.header)
+	PrintHeaderEntry(f.header)
 }
 
 // DecodeBinaryToFileEntry decodes from binary bytes slice to file entry type
@@ -937,7 +937,7 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 
 		// Not found
 		if end || iterator.Entry.Number > iterator.fromEntry {
-			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
+			log.Infof("Error can not locate the data entry number: %d", iterator.fromEntry)
 			return ErrEntryNotFound
 		}
 
@@ -960,7 +960,7 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []byte) error {
 	// Check the entry number
 	if entryNum >= f.writtenHead.TotalEntries {
-		log.Errorf("Invalid entry number [%d], not committed in the file", entryNum)
+		log.Infof("Invalid entry number [%d], not committed in the file", entryNum)
 		return ErrInvalidEntryNumberNotCommittedInFile
 	}
 
@@ -984,14 +984,14 @@ func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []by
 
 	// Check entry type
 	if iterator.Entry.Type != etype {
-		log.Errorf("Updating entry to a different entry type not allowed. Current[%d] Update[%d]", iterator.Entry.Type, etype)
+		log.Infof("Updating entry to a different entry type not allowed. Current[%d] Update[%d]", iterator.Entry.Type, etype)
 		return ErrUpdateEntryTypeNotAllowed
 	}
 
 	// Check length of data
 	dataLength := iterator.Entry.Length - FixedSizeFileEntry
 	if dataLength != uint32(len(data)) {
-		log.Errorf("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
+		log.Infof("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
 		return ErrUpdateEntryDifferentSize
 	}
 

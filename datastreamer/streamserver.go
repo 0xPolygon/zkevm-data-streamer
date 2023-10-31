@@ -459,6 +459,9 @@ func (s *StreamServer) TruncateFile(entryNum uint64) error {
 		return err
 	}
 
+	// Update entry number sequence
+	s.nextEntry = s.streamFile.header.TotalEntries
+
 	return nil
 }
 

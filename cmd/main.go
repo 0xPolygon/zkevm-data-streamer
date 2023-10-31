@@ -250,6 +250,7 @@ func runServer(ctx *cli.Context) error {
 			}
 		}
 
+		// Atomic Operations loop
 		for n := 1; n <= int(numOpersLoop); n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
