@@ -367,9 +367,10 @@ func runClient(ctx *cli.Context) error {
 		c.FromEntry = uint64(qEntry)
 		err = c.ExecCommand(datastreamer.CmdEntry)
 		if err != nil {
-			return err
+			log.Infof("Error: %v", err)
+		} else {
+			log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]", qEntry, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
 		}
-		log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]", qEntry, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
 		return nil
 	}
 
@@ -384,9 +385,10 @@ func runClient(ctx *cli.Context) error {
 		c.FromBookmark = qBook
 		err = c.ExecCommand(datastreamer.CmdBookmark)
 		if err != nil {
-			return err
+			log.Infof("Error: %v", err)
+		} else {
+			log.Infof("QUERY BOOKMARK %v: Entry[%d] Length[%d] Type[%d] Data[%v]", qBook, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
 		}
-		log.Infof("QUERY BOOKMARK %v: Entry[%d] Length[%d] Type[%d] Data[%v]", qBook, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
 		return nil
 	}
 

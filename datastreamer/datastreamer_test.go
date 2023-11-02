@@ -72,6 +72,10 @@ var (
 	testBookmark = TestBookmark{
 		FieldA: []byte{0, 1, 0, 0, 0, 0, 0, 0, 0},
 	}
+
+	nonAddedBookmark = TestBookmark{
+		FieldA: []byte{0, 2, 0, 0, 0, 0, 0, 0, 0},
+	}
 )
 
 func deleteFiles() error {
@@ -146,10 +150,21 @@ func TestClient(t *testing.T) {
 	err = client.Start()
 	require.NoError(t, err)
 
+	// Should succeed
 	client.FromBookmark = testBookmark.Encode()
 	err = client.ExecCommand(datastreamer.CmdBookmark)
 	require.NoError(t, err)
 	require.Equal(t, testEntry.Encode(), client.Entry.Data)
+
+	// Should fail because the bookmark is not added
+	client.FromBookmark = nonAddedBookmark.Encode()
+	err = client.ExecCommand(datastreamer.CmdBookmark)
+	require.EqualError(t, datastreamer.ErrBookmarkNotFound, err.Error())
+
+	// Should fail because the entry is not added
+	client.FromEntry = 3
+	err = client.ExecCommand(datastreamer.CmdEntry)
+	require.EqualError(t, datastreamer.ErrEntryNotFound, err.Error())
 
 	client.FromEntry = 2
 	err = client.ExecCommand(datastreamer.CmdEntry)

@@ -87,4 +87,6 @@ var (
 	ErrBookmarkCommandNotAllowed = fmt.Errorf("bookmark command not allowed")
 	// ErrExecCommandNotAllowed is returned when execute TCP command is not allowed
 	ErrExecCommandNotAllowed = fmt.Errorf("execute command not allowed, client is not started")
+	// ErrBookmarkNotFound is returned when the bookmark is not found
+	ErrBookmarkNotFound = fmt.Errorf("bookmark not found")
 )

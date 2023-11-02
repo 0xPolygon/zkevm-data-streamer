@@ -227,9 +227,15 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool) error {
 		c.Header = h
 	case CmdEntry:
 		e := c.getEntry()
+		if e.Type == EntryTypeNotFound {
+			return ErrEntryNotFound
+		}
 		c.Entry = e
 	case CmdBookmark:
 		e := c.getEntry()
+		if e.Type == EntryTypeNotFound {
+			return ErrBookmarkNotFound
+		}
 		c.Entry = e
 	}
 
