@@ -9,6 +9,7 @@
 *.dylib
 main
 dsdemo
+dsrelay
 
 # Test binary, built with `go test -c`
 *.test

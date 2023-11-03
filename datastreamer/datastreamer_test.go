@@ -53,7 +53,7 @@ var (
 		},
 	}
 	leveldb       = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
-	streamServer  datastreamer.StreamServer
+	streamServer  *datastreamer.StreamServer
 	streamType    = datastreamer.StreamType(1)
 	testEntryType = datastreamer.EntryType(1)
 
@@ -159,7 +159,7 @@ func TestClient(t *testing.T) {
 	// Should fail because the bookmark is not added
 	client.FromBookmark = nonAddedBookmark.Encode()
 	err = client.ExecCommand(datastreamer.CmdBookmark)
-	require.EqualError(t, datastreamer.ErrEntryNotFound, err.Error())
+	require.EqualError(t, datastreamer.ErrBookmarkNotFound, err.Error())
 
 	// Should fail because the entry is not added
 	client.FromEntry = 3

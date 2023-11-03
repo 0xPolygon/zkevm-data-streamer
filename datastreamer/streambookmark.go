@@ -13,8 +13,8 @@ type StreamBookmark struct {
 	db     *leveldb.DB
 }
 
-// PrepareBookmark creates bookmark struct and opens or creates the bookmark database
-func PrepareBookmark(fn string) (StreamBookmark, error) {
+// NewBookmark creates bookmark struct and opens or creates the bookmark database
+func NewBookmark(fn string) (*StreamBookmark, error) {
 	b := StreamBookmark{
 		dbName: fn,
 		db:     nil,
@@ -25,11 +25,11 @@ func PrepareBookmark(fn string) (StreamBookmark, error) {
 	db, err := leveldb.OpenFile(fn, nil)
 	if err != nil {
 		log.Errorf("Error opening or creating bookmarks DB %s: %v", fn, err)
-		return b, err
+		return nil, err
 	}
 	b.db = db
 
-	return b, nil
+	return &b, nil
 }
 
 // AddBookmark inserts or updates a bookmark
@@ -55,7 +55,10 @@ func (b *StreamBookmark) AddBookmark(bookmark []byte, entryNum uint64) error {
 func (b *StreamBookmark) GetBookmark(bookmark []byte) (uint64, error) {
 	// Get the bookmark from DB
 	entry, err := b.db.Get(bookmark, nil)
-	if err != nil {
+	if err == leveldb.ErrNotFound {
+		log.Infof("Bookmark not found [%v]: %v", bookmark, err)
+		return 0, err
+	} else if err != nil {
 		log.Errorf("Error getting bookmark [%v]: %v", bookmark, err)
 		return 0, err
 	}

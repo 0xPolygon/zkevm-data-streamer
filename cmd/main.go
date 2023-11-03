@@ -87,13 +87,23 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:        "from",
-					Usage:       "entry number to start the sync from (latest|0..N)",
+					Usage:       "entry number to start the sync/streaming from (latest|0..N)",
 					Value:       "latest",
 					DefaultText: "latest",
 				},
 				&cli.StringFlag{
 					Name:  "frombookmark",
-					Usage: "bookmark to start the sync from (0..N) (has preference over --from parameter)",
+					Usage: "bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)",
+					Value: "none",
+				},
+				&cli.StringFlag{
+					Name:  "entry",
+					Usage: "entry number to query data (0..N)",
+					Value: "none",
+				},
+				&cli.StringFlag{
+					Name:  "bookmark",
+					Usage: "entry bookmark to query entry data pointed by it (0..N)",
 					Value: "none",
 				},
 				&cli.StringFlag{
@@ -240,6 +250,7 @@ func runServer(ctx *cli.Context) error {
 			}
 		}
 
+		// Atomic Operations loop
 		for n := 1; n <= int(numOpersLoop); n++ {
 			// Start atomic operation
 			err = s.StartAtomicOp()
@@ -324,11 +335,13 @@ func runClient(ctx *cli.Context) error {
 
 	// Parameters
 	server := ctx.String("server")
-	from := ctx.String("from")
-	fromBookmark := ctx.String("frombookmark")
-	if server == "" || (from == "" && fromBookmark == "") {
+	if server == "" {
 		return errors.New("bad/missing parameters")
 	}
+	from := ctx.String("from")
+	fromBookmark := ctx.String("frombookmark")
+	queryEntry := ctx.String("entry")
+	queryBookmark := ctx.String("bookmark")
 
 	// Create client
 	c, err := datastreamer.NewClient(server, StSequencer)
@@ -337,12 +350,46 @@ func runClient(ctx *cli.Context) error {
 	}
 
 	// Set process entry callback function
-	// c.SetProcessEntryFunc(printEntryNum, nil)
+	c.SetProcessEntryFunc(printEntryNum)
 
 	// Start client (connect to the server)
 	err = c.Start()
 	if err != nil {
 		return err
+	}
+
+	// Query entry option
+	if queryEntry != "none" {
+		qEntry, err := strconv.Atoi(queryEntry)
+		if err != nil {
+			return err
+		}
+		c.FromEntry = uint64(qEntry)
+		err = c.ExecCommand(datastreamer.CmdEntry)
+		if err != nil {
+			log.Infof("Error: %v", err)
+		} else {
+			log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]", qEntry, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
+		}
+		return nil
+	}
+
+	// Query bookmark option
+	if queryBookmark != "none" {
+		qBookmark, err := strconv.Atoi(queryBookmark)
+		if err != nil {
+			return err
+		}
+		qBook := []byte{0} // nolint:gomnd
+		qBook = binary.LittleEndian.AppendUint64(qBook, uint64(qBookmark))
+		c.FromBookmark = qBook
+		err = c.ExecCommand(datastreamer.CmdBookmark)
+		if err != nil {
+			log.Infof("Error: %v", err)
+		} else {
+			log.Infof("QUERY BOOKMARK %v: Entry[%d] Length[%d] Type[%d] Data[%v]", qBook, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
+		}
+		return nil
 	}
 
 	// Command header: Get status
@@ -397,10 +444,10 @@ func runClient(ctx *cli.Context) error {
 }
 
 // printEntryNum prints basic data of the entry
-// func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
-// 	log.Infof("CUSTOM PROCESS: Entry[%d] Type[%d] Length[%d]", e.Number, e.Type, e.Length)
-// 	return nil
-// }
+func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	log.Infof("PROCESS entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+	return nil
+}
 
 // runRelay runs a local datastream relay
 func runRelay(ctx *cli.Context) error {

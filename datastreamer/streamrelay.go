@@ -4,12 +4,12 @@ import "github.com/0xPolygonHermez/zkevm-data-streamer/log"
 
 // StreamRelay type to manage a data stream relay
 type StreamRelay struct {
-	client StreamClient
-	server StreamServer
+	client *StreamClient
+	server *StreamServer
 }
 
 // NewRelay creates a new data stream relay
-func NewRelay(server string, port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamRelay, error) {
+func NewRelay(server string, port uint16, streamType StreamType, fileName string, cfg *log.Config) (*StreamRelay, error) {
 	var r StreamRelay
 	var err error
 
@@ -17,20 +17,20 @@ func NewRelay(server string, port uint16, streamType StreamType, fileName string
 	r.client, err = NewClient(server, streamType)
 	if err != nil {
 		log.Errorf("Error creating relay client side: %v", err)
-		return r, err
+		return nil, err
 	}
 
 	// Create server side
 	r.server, err = NewServer(port, streamType, fileName, cfg)
 	if err != nil {
 		log.Errorf("Error creating relay server side: %v", err)
-		return r, err
+		return nil, err
 	}
 
 	// Set function to process entry
-	r.client.SetProcessEntryFunc(relayEntry, &r.server)
+	r.client.setProcessEntryFunc(relayEntry, r.server)
 
-	return r, nil
+	return &r, nil
 }
 
 // Start connects and syncs with master server then opens access to relay clients

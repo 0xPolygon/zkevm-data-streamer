@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -32,7 +33,7 @@ type StreamType uint64
 // CommandError type for the command responses
 type CommandError uint32
 
-// EntryTypeNotFound is used to indicate that the entry type is not found
+// EntryTypeNotFound is the entry type value for CmdEntry/CmdBookmark when entry/bookmark not found
 const EntryTypeNotFound = math.MaxUint32
 
 const (
@@ -110,15 +111,16 @@ type StreamServer struct {
 	fileName string // Stream file name
 	started  bool   // Flag server started
 
-	streamType StreamType
-	ln         net.Listener
-	clients    map[string]*client
+	streamType   StreamType
+	ln           net.Listener
+	clients      map[string]*client
+	mutexClients sync.Mutex // Mutex for write access to clients map
 
 	nextEntry  uint64        // Next sequential entry number
 	atomicOp   streamAO      // Current in progress (if any) atomic operation
 	stream     chan streamAO // Channel to stream committed atomic operations
-	streamFile StreamFile
-	bookmark   StreamBookmark
+	streamFile *StreamFile
+	bookmark   *StreamBookmark
 }
 
 // streamAO type to manage atomic operations
@@ -143,7 +145,7 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Config) (StreamServer, error) {
+func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:     port,
@@ -176,9 +178,9 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 
 	// Open (or create) the data stream file
 	var err error
-	s.streamFile, err = PrepareStreamFile(s.fileName, s.streamType)
+	s.streamFile, err = NewStreamFile(s.fileName, s.streamType)
 	if err != nil {
-		return s, err
+		return nil, err
 	}
 
 	// Initialize the data entry number
@@ -186,12 +188,12 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 
 	// Open (or create) the bookmarks DB
 	name := s.fileName[0:strings.IndexRune(s.fileName, '.')] + ".db"
-	s.bookmark, err = PrepareBookmark(name)
+	s.bookmark, err = NewBookmark(name)
 	if err != nil {
-		return s, err
+		return &s, err
 	}
 
-	return s, nil
+	return &s, nil
 }
 
 // Start opens access to TCP clients and starts broadcasting
@@ -249,10 +251,12 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	clientId := conn.RemoteAddr().String()
 	log.Debugf("New connection: %s", clientId)
 
+	s.mutexClients.Lock()
 	s.clients[clientId] = &client{
 		conn:   conn,
 		status: csStopped,
 	}
+	s.mutexClients.Unlock()
 
 	for {
 		// Read command
@@ -291,9 +295,9 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 // StartAtomicOp starts a new atomic operation
 func (s *StreamServer) StartAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Infof("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!!!Start AtomicOp (%d)", s.nextEntry)
+	log.Infof("!AtomicOp START (%d)", s.nextEntry)
 	// Check status of the server
 	if !s.started {
 		log.Errorf("AtomicOp not allowed. Server is not started")
@@ -313,7 +317,7 @@ func (s *StreamServer) StartAtomicOp() error {
 // AddStreamEntry adds a new entry in the current atomic operation
 func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, error) {
 	start := time.Now().UnixNano()
-	defer log.Infof("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("AddStreamEntry process time: %vns", time.Now().UnixNano()-start)
 
 	// Add to the stream file
 	entryNum, err := s.addStream("Data", etype, data)
@@ -324,7 +328,7 @@ func (s *StreamServer) AddStreamEntry(etype EntryType, data []byte) (uint64, err
 // AddStreamBookmark adds a new bookmark in the current atomic operation
 func (s *StreamServer) AddStreamBookmark(bookmark []byte) (uint64, error) {
 	start := time.Now().UnixNano()
-	defer log.Infof("AddStreamBookmark process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("AddStreamBookmark process time: %vns", time.Now().UnixNano()-start)
 
 	// Add to the stream file
 	entryNum, err := s.addStream("Bookmark", EtBookmark, bookmark)
@@ -359,7 +363,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 	}
 
 	// Log data entry fields
-	log.Infof("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
+	log.Debugf("%s entry: %d | %d | %d | %d | %d", desc, e.Number, e.packetType, e.Length, e.Type, len(data))
 
 	// Update header (in memory) and write data entry into the file
 	err := s.streamFile.AddFileEntry(e)
@@ -379,9 +383,9 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 // CommitAtomicOp commits the current atomic operation and streams it to the clients
 func (s *StreamServer) CommitAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!!!Commit AtomicOp (%d)", s.atomicOp.startEntry)
+	log.Infof("!AtomicOp COMMIT (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
 		return ErrCommitNotAllowed
@@ -414,9 +418,9 @@ func (s *StreamServer) CommitAtomicOp() error {
 // RollbackAtomicOp cancels the current atomic operation and rollbacks the changes
 func (s *StreamServer) RollbackAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Infof("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Debugf("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!!!Rollback AtomicOp (%d)", s.atomicOp.startEntry)
+	log.Infof("!AtomicOp ROLLBACK (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
 		return ErrRollbackNotAllowed
@@ -458,6 +462,9 @@ func (s *StreamServer) TruncateFile(entryNum uint64) error {
 	if err != nil {
 		return err
 	}
+
+	// Update entry number sequence
+	s.nextEntry = s.streamFile.header.TotalEntries
 
 	return nil
 }
@@ -570,9 +577,9 @@ func (s *StreamServer) broadcastAtomicOp() {
 		start := time.Now().UnixMilli()
 
 		// For each connected and started client
-		log.Infof("STREAM clients: %d, AtomicOP entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Infof("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
 		for id, cli := range s.clients {
-			log.Infof("Stream client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
+			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
 				continue
 			}
@@ -595,7 +602,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 			}
 		}
-		log.Infof("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
+		log.Debugf("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
 	}
 }
 
@@ -603,11 +610,13 @@ func (s *StreamServer) broadcastAtomicOp() {
 func (s *StreamServer) killClient(clientId string) {
 	if s.clients[clientId] != nil {
 		if s.clients[clientId].status != csKilled {
+			s.mutexClients.Lock()
 			s.clients[clientId].status = csKilled
 			if s.clients[clientId].conn != nil {
 				s.clients[clientId].conn.Close()
 			}
 			delete(s.clients, clientId)
+			s.mutexClients.Unlock()
 		}
 	}
 }
@@ -705,7 +714,7 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 
 	// Check received param
 	if fromEntry > s.nextEntry {
-		log.Errorf("Start command invalid from entry %d for client %s", fromEntry, clientId)
+		log.Infof("Start command invalid from entry %d for client %s", fromEntry, clientId)
 		err = ErrStartCommandInvalidParamFromEntry
 		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], clientId)
 		return err
@@ -746,7 +755,7 @@ func (s *StreamServer) processCmdStartBookmark(clientId string) error {
 	// Get bookmark
 	entryNum, err := s.bookmark.GetBookmark(bookmark)
 	if err != nil {
-		log.Errorf("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, clientId, err)
+		log.Infof("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, clientId, err)
 		err = ErrStartBookmarkInvalidParamFromBookmark
 		_ = s.sendResultEntry(uint32(CmdErrBadFromBookmark), StrCommandErrors[CmdErrBadFromBookmark], clientId)
 		return err
@@ -827,7 +836,7 @@ func (s *StreamServer) processCmdEntry(clientId string) error {
 	// Get the requested entry
 	entry, err := s.GetEntry(entryNumber)
 	if err != nil {
-		log.Errorf("Error getting entry %d: %v", entryNumber, err)
+		log.Infof("Error getting entry, not found? %d: %v", entryNumber, err)
 		entry = FileEntry{}
 		entry.Length = FixedSizeFileEntry
 		entry.Type = EntryTypeNotFound
@@ -877,7 +886,7 @@ func (s *StreamServer) processCmdBookmark(clientId string) error {
 	// Get the requested bookmark
 	entry, err := s.GetFirstEventAfterBookmark(bookmark)
 	if err != nil {
-		log.Errorf("Error getting bookmark %v: %v", bookmark, err)
+		log.Infof("Error getting bookmark, not found? %v: %v", bookmark, err)
 		entry = FileEntry{}
 		entry.Length = FixedSizeFileEntry
 		entry.Type = EntryTypeNotFound

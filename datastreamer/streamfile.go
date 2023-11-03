@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sync"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 )
@@ -64,6 +65,7 @@ type StreamFile struct {
 	fileHeader  *os.File    // File descriptor just for read/write the header
 	header      HeaderEntry // Current header in memory (atomic operation in progress)
 	writtenHead HeaderEntry // Current header written in the file
+	mutexHeader sync.Mutex  // Mutex for update header data
 }
 
 type iteratorFile struct {
@@ -72,8 +74,8 @@ type iteratorFile struct {
 	Entry     FileEntry
 }
 
-// PrepareStreamFile creates stream file struct and opens or creates the stream binary data file
-func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
+// NewStreamFile creates stream file struct and opens or creates the stream binary data file
+func NewStreamFile(fn string, st StreamType) (*StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
 		pageSize:   pageDataSize,
@@ -94,13 +96,13 @@ func PrepareStreamFile(fn string, st StreamType) (StreamFile, error) {
 	// Open (or create) the data stream file
 	err := sf.openCreateFile()
 	if err != nil {
-		return sf, err
+		return nil, err
 	}
 
 	// Print file info
-	printStreamFile(sf)
+	printStreamFile(&sf)
 
-	return sf, err
+	return &sf, err
 }
 
 // openCreateFile opens or creates the stream file and performs multiple checks
@@ -214,8 +216,10 @@ func (f *StreamFile) createHeaderPage() error {
 	}
 
 	// Update total data length and max file length
+	f.mutexHeader.Lock()
 	f.maxLength = f.maxLength + pageHeaderSize
 	f.header.TotalLength = pageHeaderSize
+	f.mutexHeader.Unlock()
 
 	// Write magic numbers
 	err = f.writeMagicNumbers()
@@ -314,14 +318,15 @@ func (f *StreamFile) readHeaderEntry() error {
 	}
 
 	// Convert to header struct
+	f.mutexHeader.Lock()
 	f.header, err = decodeBinaryToHeaderEntry(binaryHeader)
+	f.writtenHead = f.header
+	f.mutexHeader.Unlock()
 	if err != nil {
 		log.Error("Error decoding binary header")
 		return err
 	}
 
-	// Current written header in file
-	f.writtenHead = f.header
 	return nil
 }
 
@@ -330,8 +335,8 @@ func (f *StreamFile) getHeaderEntry() HeaderEntry {
 	return f.writtenHead
 }
 
-// printHeaderEntry prints file header information
-func printHeaderEntry(e HeaderEntry) {
+// PrintHeaderEntry prints file header information
+func PrintHeaderEntry(e HeaderEntry) {
 	log.Info("--- HEADER ENTRY -------------------------")
 	log.Infof("packetType: [%d]", e.packetType)
 	log.Infof("headerLength: [%d]", e.headLength)
@@ -374,7 +379,9 @@ func (f *StreamFile) writeHeaderEntry() error {
 	}
 
 	// Update the written header
+	f.mutexHeader.Lock()
 	f.writtenHead = f.header
+	f.mutexHeader.Unlock()
 	return nil
 }
 
@@ -550,8 +557,10 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	}
 
 	// Update the current header in memory (on disk later when the commit arrives)
+	f.mutexHeader.Lock()
 	f.header.TotalLength = f.header.TotalLength + entryLength
 	f.header.TotalEntries = f.header.TotalEntries + 1
+	f.mutexHeader.Unlock()
 
 	// printHeaderEntry(f.header)
 	return nil
@@ -591,21 +600,23 @@ func (f *StreamFile) fillPagePadEntries() error {
 		// Sync/flush to disk will be done outside this function
 
 		// Update the current header in memory (on disk later when the commit arrives)
+		f.mutexHeader.Lock()
 		f.header.TotalLength = f.header.TotalLength + pageRemaining
+		f.mutexHeader.Unlock()
 	}
 
 	return nil
 }
 
 // printStreamFile prints file information
-func printStreamFile(f StreamFile) {
+func printStreamFile(f *StreamFile) {
 	log.Info("--- STREAM FILE --------------------------")
 	log.Infof("fileName: [%s]", f.fileName)
 	log.Infof("pageSize: [%d]", f.pageSize)
 	log.Infof("streamType: [%d]", f.streamType)
 	log.Infof("maxLength: [%d]", f.maxLength)
 	log.Infof("numDataPages=[%d]", (f.maxLength-pageHeaderSize)/pageDataSize)
-	printHeaderEntry(f.header)
+	PrintHeaderEntry(f.header)
 }
 
 // DecodeBinaryToFileEntry decodes from binary bytes slice to file entry type
@@ -926,7 +937,7 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 
 		// Not found
 		if end || iterator.Entry.Number > iterator.fromEntry {
-			log.Errorf("Error can not locate the data entry number: %d", iterator.fromEntry)
+			log.Infof("Error can not locate the data entry number: %d", iterator.fromEntry)
 			return ErrEntryNotFound
 		}
 
@@ -949,7 +960,7 @@ func (f *StreamFile) locateEntry(iterator *iteratorFile) error {
 func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []byte) error {
 	// Check the entry number
 	if entryNum >= f.writtenHead.TotalEntries {
-		log.Errorf("Invalid entry number [%d], not committed in the file", entryNum)
+		log.Infof("Invalid entry number [%d], not committed in the file", entryNum)
 		return ErrInvalidEntryNumberNotCommittedInFile
 	}
 
@@ -973,14 +984,14 @@ func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []by
 
 	// Check entry type
 	if iterator.Entry.Type != etype {
-		log.Errorf("Updating entry to a different entry type not allowed. Current[%d] Update[%d]", iterator.Entry.Type, etype)
+		log.Infof("Updating entry to a different entry type not allowed. Current[%d] Update[%d]", iterator.Entry.Type, etype)
 		return ErrUpdateEntryTypeNotAllowed
 	}
 
 	// Check length of data
 	dataLength := iterator.Entry.Length - FixedSizeFileEntry
 	if dataLength != uint32(len(data)) {
-		log.Errorf("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
+		log.Infof("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
 		return ErrUpdateEntryDifferentSize
 	}
 
@@ -1027,8 +1038,11 @@ func (f *StreamFile) truncateFile(entryNum uint64) error {
 	}
 
 	// Update internal header
+	f.mutexHeader.Lock()
 	f.header.TotalEntries = entryNum
 	f.header.TotalLength = uint64(curpos)
+	f.writtenHead = f.header
+	f.mutexHeader.Unlock()
 
 	// Write the header into the file (commit changes)
 	err = f.writeHeaderEntry()

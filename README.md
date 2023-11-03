@@ -139,25 +139,41 @@ Stream relay server included in the datastream library allows scaling the number
 - **Data Streamer Relay** acts as a `stream client` towards the main data stream server, and also acts as a `stream server` towards the stream clients connected to it.
 
 
-## STREAM INTERFACE (API)
+## DATA STREAMER INTERFACE (API)
+### SERVER API
 - Create and start a datastream server (`StreamServer`) using the `NewServer` function followed by the `Start` function.
 - Send data to stream by starting an atomic operation through `StartAtomicOp`, adding entry events (`AddStreamEntry`) and bookmarks (`AddStreamBookmark`), and commit the operation `CommitAtomicOp`.
 
-### Send data API
+#### Send data API
 - StartAtomicOp()  
 - AddStreamBookmark(u8[] bookmark) -> returns u64 entryNumber  
 - AddStreamEntry(u32 entryType, u8[] data) -> returns u64 entryNumber  
 - CommitAtomicOp()  
 - RollbackAtomicOp()  
 
-### Query data API
+#### Query data API
 - GetHeader() -> returns struct HeaderEntry
 - GetEntry(u64 entryNumber) -> returns struct FileEntry
 - GetBookmark(u8[] bookmark) -> returns u64 entryNumber
 - GetFirstEventAfterBookmark(u8[] bookmark) -> returns struct FileEntry
 
-### Update data API
+#### Update data API
 - UpdateEntryData(u64 entryNumber, u32 entryType, u8[] newData)
+
+### CLIENT API
+- Create and start a datastream client (`StreamClient`) using the `NewClient` function followed by the `Start` function.
+- Executes server commands by calling `ExecCommand`
+
+#### Streaming API
+- ExecCommand(datastreamer.CmdStart) -> starts receiving stream from the entry number specified by setting `.FromEntry` field
+- ExecCommand(datastreamer.CmdStartBookmark) -> starts receiving stream from the entry pointed by bookmark specified by setting `.FromBookmark` field
+- ExecCommand(datastreamer.CmdStop) -> stops receiving stream
+- SetProcessEntryFunc(f `ProcessEntryFunc`) -> sets the callback function for each entry received. Overrides default function that just prints the entry fields.
+
+#### Query data API
+- ExecCommand(datastreamer.CmdHeader) -> gets data stream file header info and fills the `.Header` field
+- ExecCommand(datastreamer.CmdEntry) -> gets entry data from entry number and fills the `.Entry` field
+- ExecCommand(datastreamer.CmdBookmark) -> gets entry data pointed by bookmark and fills the `.Entry` field
 
 ## DATASTREAM CLI DEMO APP
 Build the binary datastream demo app (`dsdemo`):
@@ -226,8 +242,10 @@ USAGE:
 
 OPTIONS:
    --server value        datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
-   --from value          entry number to start the sync from (latest|0..N) (default: latest)
-   --frombookmark value  bookmark to start the sync from (0..N) (has preference over --from parameter)
+   --from value          entry number to start the sync/streaming from (latest|0..N) (default: latest)
+   --frombookmark value  bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)
+   --entry value         entry number to query data (0..N)
+   --bookmark value      entry bookmark to query entry data pointed by it (0..N)
    --log value           log level (debug|info|warn|error) (default: info)
    --help, -h            show help
 ```
@@ -238,6 +256,29 @@ Run a datastream client with default parameters (server: `127.0.0.1:6900`, from:
 Or run a datastream client with custom parameters:
 ```
 ./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
+```
+### RELAY
+Use the help option to check available parameters for the relay command:
+```
+./dsdemo help relay
+```
+```
+NAME:
+   dsdemo relay - Run datastream relay
+
+USAGE:
+   dsdemo relay [command options] [arguments...]
+
+OPTIONS:
+   --server value  datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
+   --port value    exposed port for clients to connect (default: 7900)
+   --file value    relay data file name (*.bin) (default: datarelay.bin)
+   --log value     log level (debug|info|warn|error) (default: info)
+   --help, -h      show help
+```
+Run a datastream relay with default parameters (server: `127.0.0.1:6900`, port: `7900`, file: `datarelay.bin`, log: `info`)
+```
+./dsdemo relay
 ```
 
 ## USE CASE: zkEVM SEQUENCER ENTRIES
