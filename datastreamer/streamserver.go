@@ -285,7 +285,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
-			time.Sleep(2 * time.Second)
+			time.Sleep(2 * time.Second) // nolint:gomnd
 			s.killClient(clientId)
 			return
 		}

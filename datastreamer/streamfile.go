@@ -19,8 +19,8 @@ const (
 	fileMode       = 0666        // Open file mode
 	magicNumSize   = 16          // Magic numbers size
 	headerSize     = 29          // Header data size
-	PageHeaderSize = 4096        // 4K size header page
-	PageDataSize   = 1024 * 1024 // 1 MB size data page
+	PageHeaderSize = 4096        // PageHeaderSize is the size of header page (4 KB)
+	PageDataSize   = 1024 * 1024 // PageDataSize is the size of one data page (1 MB)
 	initPages      = 100         // Initial number of data pages
 	nextPages      = 10          // Number of data pages to add when file is full
 
