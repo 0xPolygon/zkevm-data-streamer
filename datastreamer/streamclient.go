@@ -523,7 +523,7 @@ func (c *StreamClient) getStreaming() {
 		// Process the data entry
 		err := c.processEntry(&e, c, c.relayServer)
 		if err != nil {
-			log.Errorf("%s Error processing entry %d", c.Id, e.Number)
+			log.Fatalf("%s Error processing entry %d: %s. HALTED!", c.Id, e.Number, err.Error())
 		}
 	}
 }

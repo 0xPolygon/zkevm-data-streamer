@@ -2,6 +2,7 @@ package datastreamer_test
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -21,6 +22,13 @@ type TestEntry struct {
 
 type TestBookmark struct {
 	FieldA []byte
+}
+type TestHeader struct {
+	PacketType   uint8
+	HeadLength   uint32
+	StreamType   uint64
+	TotalLength  uint64
+	TotalEntries uint64
 }
 
 func (t TestEntry) Encode() []byte {
@@ -52,21 +60,59 @@ var (
 			Outputs:     []string{"stdout"},
 		},
 	}
-	leveldb       = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
-	streamServer  *datastreamer.StreamServer
-	streamType    = datastreamer.StreamType(1)
-	testEntryType = datastreamer.EntryType(1)
+	leveldb      = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
+	streamServer *datastreamer.StreamServer
+	streamType   = datastreamer.StreamType(1)
+	entryType1   = datastreamer.EntryType(1)
+	entryType2   = datastreamer.EntryType(2)
 
-	testEntry = TestEntry{
-		FieldA: 123,
-		FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
-		FieldC: []byte("test entry 1"),
+	testEntries = []TestEntry{
+		{
+			FieldA: 0,
+			FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldC: []byte("test entry 0"),
+		},
+		{
+			FieldA: 1,
+			FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldC: []byte("test entry 1"),
+		},
+		{
+			FieldA: 2,
+			FieldB: common.HexToHash("0x2234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldC: []byte("test entry 2"),
+		},
+		{
+			FieldA: 3,
+			FieldB: common.HexToHash("0x3234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldC: []byte("test entry 3"),
+		},
+		{
+			FieldA: 4,
+			FieldB: common.HexToHash("0x3234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldC: []byte("large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
+				"large test entry 4 large test entry 4 large test entry 4 large test entry 4"),
+		},
 	}
 
-	testEntry2 = TestEntry{
-		FieldA: 456,
-		FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
-		FieldC: []byte("test entry 2"),
+	badUpdateEntry = TestEntry{
+		FieldA: 10,
+		FieldB: common.HexToHash("0xa1cdef7890abcdef1234567890abcdef1234567890abcdef1234567890123456"),
+		FieldC: []byte("test entry not updated"),
+	}
+
+	okUpdateEntry = TestEntry{
+		FieldA: 11,
+		FieldB: common.HexToHash("0xa2cdef7890abcdef1234567890abcdef1234567890abcdef1234567890123456"),
+		FieldC: []byte("update entry"),
 	}
 
 	testBookmark = TestBookmark{
@@ -75,6 +121,14 @@ var (
 
 	nonAddedBookmark = TestBookmark{
 		FieldA: []byte{0, 2, 0, 0, 0, 0, 0, 0, 0},
+	}
+
+	headerEntry = TestHeader{
+		PacketType:   1,
+		HeadLength:   29,
+		StreamType:   1,
+		TotalLength:  1053479,
+		TotalEntries: 1304,
 	}
 )
 
@@ -103,44 +157,218 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	// Should fail because the start atomic operation has not been called
-	entryNumber, err := streamServer.AddStreamEntry(testEntryType, testEntry.Encode())
+
+	// Case: Add entry without starting atomic operation -> FAIL
+	entryNumber, err := streamServer.AddStreamEntry(entryType1, testEntries[1].Encode())
 	require.Equal(t, datastreamer.ErrAddEntryNotAllowed, err)
 	require.Equal(t, uint64(0), entryNumber)
 
-	// Should fail because server is not started
+	// Case: Start atomic operation without starting the server -> FAIL
 	err = streamServer.StartAtomicOp()
 	require.Equal(t, datastreamer.ErrAtomicOpNotAllowed, err)
 	require.Equal(t, uint64(0), entryNumber)
 
-	// Should succeed
+	// Case: Start server, start atomic operation, add entries, commit -> OK
 	err = streamServer.Start()
 	require.NoError(t, err)
 
-	// Should succeed
 	err = streamServer.StartAtomicOp()
 	require.NoError(t, err)
 
-	// Should succeed
 	entryNumber, err = streamServer.AddStreamBookmark(testBookmark.Encode())
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), entryNumber)
 
-	entryNumber, err = streamServer.AddStreamEntry(testEntryType, testEntry.Encode())
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[1].Encode())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), entryNumber)
 
-	entryNumber, err = streamServer.AddStreamEntry(testEntryType, testEntry2.Encode())
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[2].Encode())
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), entryNumber)
 
 	err = streamServer.CommitAtomicOp()
 	require.NoError(t, err)
 
-	// Get the second entry
+	// Case: Get entry data of an entry number that exists -> OK
 	entry, err := streamServer.GetEntry(2)
 	require.NoError(t, err)
-	require.Equal(t, testEntry2, TestEntry{}.Decode(entry.Data))
+	require.Equal(t, testEntries[2], TestEntry{}.Decode(entry.Data))
+
+	// Case: Get entry data of an entry number that doesn't exist -> FAIL
+	entry, err = streamServer.GetEntry(3)
+	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+
+	// Case: Get entry number pointed by bookmark that exists -> OK
+	entryNumber, err = streamServer.GetBookmark(testBookmark.Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), entryNumber)
+
+	// Case: Get entry number pointed by bookmark that doesn't exist -> FAIL
+	_, err = streamServer.GetBookmark(nonAddedBookmark.Encode())
+	require.EqualError(t, errors.New("leveldb: not found"), err.Error())
+
+	// Case: Update entry data of an entry number that doesn't exist -> FAIL
+	err = streamServer.UpdateEntryData(22, entryType1, badUpdateEntry.Encode())
+	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+
+	// Case: Update entry data present in atomic operation in progress -> FAIL
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[3].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), entryNumber)
+
+	err = streamServer.UpdateEntryData(3, entryType1, badUpdateEntry.Encode())
+	require.EqualError(t, datastreamer.ErrUpdateNotAllowed, err.Error())
+
+	err = streamServer.CommitAtomicOp()
+	require.NoError(t, err)
+
+	// Case: Update entry data changing the entry type -> FAIL
+	err = streamServer.UpdateEntryData(3, entryType2, badUpdateEntry.Encode())
+	require.EqualError(t, datastreamer.ErrUpdateEntryTypeNotAllowed, err.Error())
+
+	// Case: Update entry data changing data length -> FAIL
+	err = streamServer.UpdateEntryData(3, entryType1, badUpdateEntry.Encode())
+	require.EqualError(t, datastreamer.ErrUpdateEntryDifferentSize, err.Error())
+
+	// Case: Update entry data not in atomic oper, same type, same data length -> OK
+	var entryUpdated uint64 = 3
+	err = streamServer.UpdateEntryData(entryUpdated, entryType1, okUpdateEntry.Encode())
+	require.NoError(t, err)
+
+	// Case: Get entry just updated and check it is modified -> OK
+	entry, err = streamServer.GetEntry(entryUpdated)
+	require.NoError(t, err)
+	require.Equal(t, entryUpdated, entry.Number)
+	require.Equal(t, okUpdateEntry, TestEntry{}.Decode(entry.Data))
+
+	// Case: Get previous entry to the updated one and check not modified -> OK
+	if entryUpdated > 1 {
+		entry, err = streamServer.GetEntry(entryUpdated - 1)
+		require.NoError(t, err)
+		require.Equal(t, entryUpdated-1, entry.Number)
+		require.Equal(t, testEntries[entryUpdated-1], TestEntry{}.Decode(entry.Data))
+	}
+
+	// Case: Add 3 new entries -> OK
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[1].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), entryNumber)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[2].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), entryNumber)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[2].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(6), entryNumber)
+
+	err = streamServer.CommitAtomicOp()
+	require.NoError(t, err)
+
+	// Case: Atomic finished with rollback -> OK
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[1].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), entryNumber)
+
+	err = streamServer.RollbackAtomicOp()
+	require.NoError(t, err)
+
+	// Case: Get entry data of previous rollback entry number (doesn't exist) -> FAIL
+	entry, err = streamServer.GetEntry(7)
+	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+
+	// Case: Truncate file with atomic operation in progress -> FAIL
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
+
+	err = streamServer.TruncateFile(5)
+	require.EqualError(t, datastreamer.ErrTruncateNotAllowed, err.Error())
+
+	err = streamServer.RollbackAtomicOp()
+	require.NoError(t, err)
+
+	// Case: Truncate file from an entry number invalid -> FAIL
+	err = streamServer.TruncateFile(7)
+	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+
+	// Case: Truncate file from valid entry number, not atomic operation in progress -> OK
+	err = streamServer.TruncateFile(5)
+	require.NoError(t, err)
+
+	// Case: Get entries included in previous file truncate (don't exist) -> FAIL
+	entry, err = streamServer.GetEntry(6)
+	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+	entry, err = streamServer.GetEntry(5)
+	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+
+	// Case: Get entry not included in previous file truncate -> OK
+	entry, err = streamServer.GetEntry(4)
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), entry.Number)
+
+	// Log file header before fill the first data page
+	datastreamer.PrintHeaderEntry(streamServer.GetHeader(), "before fill page")
+
+	// Case: Fill first data page with entries
+	entryLength := len(testEntries[4].Encode()) + datastreamer.FixedSizeFileEntry
+	bytesAvailable := datastreamer.PageDataSize - (streamServer.GetHeader().TotalLength - datastreamer.PageHeaderSize)
+	numEntries := bytesAvailable / uint64(entryLength)
+	log.Debugf(">>> totalLength: %d | bytesAvailable: %d | entryLength: %d | numEntries: %d", streamServer.GetHeader().TotalLength, bytesAvailable, entryLength, numEntries)
+
+	lastEntry := entryNumber - 2 // 2 entries truncated
+	lastEntry = lastEntry - 1
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
+
+	for i := 1; i <= int(numEntries); i++ {
+		lastEntry++
+		entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[4].Encode())
+		require.NoError(t, err)
+		require.Equal(t, uint64(lastEntry), entryNumber)
+	}
+
+	err = streamServer.CommitAtomicOp()
+	require.NoError(t, err)
+
+	bytesAvailable = datastreamer.PageDataSize - ((streamServer.GetHeader().TotalLength - datastreamer.PageHeaderSize) % datastreamer.PageDataSize)
+	numEntries = bytesAvailable / uint64(entryLength)
+	log.Debugf(">>> totalLength: %d | bytesAvailable: %d | entryLength: %d | numEntries: %d", streamServer.GetHeader().TotalLength, bytesAvailable, entryLength, numEntries)
+
+	// Case: Get latest entry stored in the first data page -> OK
+	entry, err = streamServer.GetEntry(entryNumber)
+	require.NoError(t, err)
+	require.Equal(t, entryNumber, entry.Number)
+	require.Equal(t, testEntries[4], TestEntry{}.Decode(entry.Data))
+
+	// Case: Add new entry and will be stored in the second data page -> OK
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[4].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(lastEntry+1), entryNumber)
+
+	err = streamServer.CommitAtomicOp()
+	require.NoError(t, err)
+
+	// Case: Get entry stored in the second data page -> OK
+	entry, err = streamServer.GetEntry(entryNumber)
+	require.NoError(t, err)
+	require.Equal(t, entryNumber, entry.Number)
+	require.Equal(t, testEntries[4], TestEntry{}.Decode(entry.Data))
+
+	// Log final file header
+	datastreamer.PrintHeaderEntry(streamServer.GetHeader(), "final tests")
 }
 
 func TestClient(t *testing.T) {
@@ -150,30 +378,76 @@ func TestClient(t *testing.T) {
 	err = client.Start()
 	require.NoError(t, err)
 
-	// Should succeed
-	client.FromBookmark = testBookmark.Encode()
-	err = client.ExecCommand(datastreamer.CmdBookmark)
-	require.NoError(t, err)
-	require.Equal(t, testEntry.Encode(), client.Entry.Data)
-
-	// Should fail because the bookmark is not added
+	// Case: Query data from not existing bookmark -> FAIL
 	client.FromBookmark = nonAddedBookmark.Encode()
 	err = client.ExecCommand(datastreamer.CmdBookmark)
 	require.EqualError(t, datastreamer.ErrBookmarkNotFound, err.Error())
 
-	// Should fail because the entry is not added
-	client.FromEntry = 3
+	// Case: Query data from existing bookmark -> OK
+	client.FromBookmark = testBookmark.Encode()
+	err = client.ExecCommand(datastreamer.CmdBookmark)
+	require.NoError(t, err)
+
+	// Case: Query data for entry number that doesn't exist -> FAIL
+	client.FromEntry = 5000
 	err = client.ExecCommand(datastreamer.CmdEntry)
 	require.EqualError(t, datastreamer.ErrEntryNotFound, err.Error())
 
+	// Case: Query data for entry number that exists -> OK
 	client.FromEntry = 2
 	err = client.ExecCommand(datastreamer.CmdEntry)
 	require.NoError(t, err)
+	require.Equal(t, testEntries[2], TestEntry{}.Decode(client.Entry.Data))
 
-	require.Equal(t, testEntry2, TestEntry{}.Decode(client.Entry.Data))
-
+	// Case: Query data for entry number that exists -> OK
 	client.FromEntry = 1
 	err = client.ExecCommand(datastreamer.CmdEntry)
 	require.NoError(t, err)
-	require.Equal(t, testEntry, TestEntry{}.Decode(client.Entry.Data))
+	require.Equal(t, testEntries[1], TestEntry{}.Decode(client.Entry.Data))
+
+	// Case: Query header info -> OK
+	err = client.ExecCommand(datastreamer.CmdHeader)
+	require.NoError(t, err)
+	require.Equal(t, headerEntry.TotalEntries, client.Header.TotalEntries)
+	require.Equal(t, headerEntry.TotalLength, client.Header.TotalLength)
+
+	// Case: Start sync from not existing entry -> FAIL
+	// client.FromEntry = 22
+	// err = client.ExecCommand(datastreamer.CmdStart)
+	// require.EqualError(t, datastreamer.ErrResultCommandError, err.Error())
+
+	// Case: Start sync from not existing bookmark -> FAIL
+	// client.FromBookmark = nonAddedBookmark.Encode()
+	// err = client.ExecCommand(datastreamer.CmdStartBookmark)
+	// require.EqualError(t, datastreamer.ErrResultCommandError, err.Error())
+
+	// Case: Start sync from existing entry -> OK
+	// client.FromEntry = 0
+	// err = client.ExecCommand(datastreamer.CmdStart)
+	// require.NoError(t, err)
+
+	// Case: Start sync from existing bookmark -> OK
+	client.FromBookmark = testBookmark.Encode()
+	err = client.ExecCommand(datastreamer.CmdStartBookmark)
+	require.NoError(t, err)
+
+	// Case: Query entry data with streaming started -> FAIL
+	// client.FromEntry = 2
+	// err = client.ExecCommand(datastreamer.CmdEntry)
+	// require.EqualError(t, datastreamer.ErrResultCommandError, err.Error())
+
+	// Case: Query bookmark data with streaming started -> FAIL
+	// client.FromBookmark = testBookmark.Encode()
+	// err = client.ExecCommand(datastreamer.CmdBookmark)
+	// require.EqualError(t, datastreamer.ErrResultCommandError, err.Error())
+
+	// Case: Stop receiving streaming -> OK
+	err = client.ExecCommand(datastreamer.CmdStop)
+	require.NoError(t, err)
+
+	// Case: Query entry data after stop the streaming -> OK
+	client.FromEntry = 2
+	err = client.ExecCommand(datastreamer.CmdEntry)
+	require.NoError(t, err)
+	require.Equal(t, testEntries[2], TestEntry{}.Decode(client.Entry.Data))
 }

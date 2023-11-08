@@ -19,8 +19,8 @@ const (
 	fileMode       = 0666        // Open file mode
 	magicNumSize   = 16          // Magic numbers size
 	headerSize     = 29          // Header data size
-	pageHeaderSize = 4096        // 4K size header page
-	pageDataSize   = 1024 * 1024 // 1 MB size data page
+	PageHeaderSize = 4096        // 4K size header page
+	PageDataSize   = 1024 * 1024 // 1 MB size data page
 	initPages      = 100         // Initial number of data pages
 	nextPages      = 10          // Number of data pages to add when file is full
 
@@ -78,7 +78,7 @@ type iteratorFile struct {
 func NewStreamFile(fn string, st StreamType) (*StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
-		pageSize:   pageDataSize,
+		pageSize:   PageDataSize,
 		file:       nil,
 		streamType: st,
 		maxLength:  0,
@@ -209,7 +209,7 @@ func (f *StreamFile) initializeFile() error {
 // createHeaderPage creates and initilize the header page of the stream file
 func (f *StreamFile) createHeaderPage() error {
 	// Create the header page (first page) of the file
-	err := f.createPage(pageHeaderSize)
+	err := f.createPage(PageHeaderSize)
 	if err != nil {
 		log.Errorf("Error creating the header page: %v", err)
 		return err
@@ -217,8 +217,8 @@ func (f *StreamFile) createHeaderPage() error {
 
 	// Update total data length and max file length
 	f.mutexHeader.Lock()
-	f.maxLength = f.maxLength + pageHeaderSize
-	f.header.TotalLength = pageHeaderSize
+	f.maxLength = f.maxLength + PageHeaderSize
+	f.header.TotalLength = PageHeaderSize
 	f.mutexHeader.Unlock()
 
 	// Write magic numbers
@@ -336,23 +336,17 @@ func (f *StreamFile) getHeaderEntry() HeaderEntry {
 }
 
 // PrintHeaderEntry prints file header information
-func PrintHeaderEntry(e HeaderEntry) {
-	log.Info("--- HEADER ENTRY -------------------------")
+func PrintHeaderEntry(e HeaderEntry, title string) {
+	log.Infof("--- HEADER ENTRY %s -------------------------", title)
 	log.Infof("packetType: [%d]", e.packetType)
 	log.Infof("headerLength: [%d]", e.headLength)
 	log.Infof("streamType: [%d]", e.streamType)
 	log.Infof("totalLength: [%d]", e.TotalLength)
 	log.Infof("totalEntries: [%d]", e.TotalEntries)
 
-	var usedPages uint64
-	if e.TotalLength == 0 {
-		usedPages = 0
-	} else if (e.TotalLength-pageHeaderSize)%pageDataSize == 0 {
-		usedPages = (e.TotalLength - pageHeaderSize) / pageDataSize
-	} else {
-		usedPages = (e.TotalLength-pageHeaderSize)/pageDataSize + 1
-	}
-	log.Infof("usedDataPages=[%d]", usedPages)
+	numPage := (e.TotalLength - PageHeaderSize) / PageDataSize
+	offPage := (e.TotalLength - PageHeaderSize) % PageDataSize
+	log.Infof("DataPage num=[%d] off=[%d]", numPage, offPage)
 }
 
 // writeHeaderEntry writes the memory header struct into the file header
@@ -435,13 +429,13 @@ func (f *StreamFile) checkFileConsistency() error {
 	}
 
 	// Check header page is present
-	if info.Size() < pageHeaderSize {
+	if info.Size() < PageHeaderSize {
 		log.Error("Invalid file: missing header page")
 		return ErrInvalidFileMissingHeaderPage
 	}
 
 	// Check data pages are not cut
-	dataSize := info.Size() - pageHeaderSize
+	dataSize := info.Size() - PageHeaderSize
 	uncut := dataSize % int64(f.pageSize)
 	if uncut != 0 {
 		log.Error("Inconsistent file size there is a cut data page")
@@ -510,10 +504,10 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	// Check if the entry fits on current page
 	var pageRemaining uint64
 	entryLength := uint64(len(be))
-	if (f.header.TotalLength-pageHeaderSize)%pageDataSize == 0 {
+	if (f.header.TotalLength-PageHeaderSize)%PageDataSize == 0 {
 		pageRemaining = 0
 	} else {
-		pageRemaining = pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
+		pageRemaining = PageDataSize - (f.header.TotalLength-PageHeaderSize)%PageDataSize
 	}
 	if entryLength > pageRemaining {
 		log.Debugf(">> Fill with pad entries. PageRemaining:%d, EntryLength:%d", pageRemaining, entryLength)
@@ -577,10 +571,10 @@ func (f *StreamFile) fillPagePadEntries() error {
 
 	// Page remaining free space
 	var pageRemaining uint64
-	if (f.header.TotalLength-pageHeaderSize)%pageDataSize == 0 {
+	if (f.header.TotalLength-PageHeaderSize)%PageDataSize == 0 {
 		pageRemaining = 0
 	} else {
-		pageRemaining = pageDataSize - (f.header.TotalLength-pageHeaderSize)%pageDataSize
+		pageRemaining = PageDataSize - (f.header.TotalLength-PageHeaderSize)%PageDataSize
 	}
 
 	if pageRemaining > 0 {
@@ -615,8 +609,8 @@ func printStreamFile(f *StreamFile) {
 	log.Infof("pageSize: [%d]", f.pageSize)
 	log.Infof("streamType: [%d]", f.streamType)
 	log.Infof("maxLength: [%d]", f.maxLength)
-	log.Infof("numDataPages=[%d]", (f.maxLength-pageHeaderSize)/pageDataSize)
-	PrintHeaderEntry(f.header)
+	log.Infof("numDataPages=[%d]", (f.maxLength-PageHeaderSize)/PageDataSize)
+	PrintHeaderEntry(f.header, "")
 }
 
 // DecodeBinaryToFileEntry decodes from binary bytes slice to file entry type
@@ -644,6 +638,12 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 
 // iteratorFrom initializes iterator to locate a data entry number in the stream file
 func (f *StreamFile) iteratorFrom(entryNum uint64, readOnly bool) (*iteratorFile, error) {
+	// Check starting entry number
+	if entryNum >= f.writtenHead.TotalEntries {
+		log.Infof("Invalid starting entry number for iterator")
+		return nil, ErrInvalidEntryNumber
+	}
+
 	// Iterator mode
 	var flag int
 	if readOnly {
@@ -677,7 +677,7 @@ func (f *StreamFile) iteratorFrom(entryNum uint64, readOnly bool) (*iteratorFile
 // iteratorNext gets the next data entry in the file for the iterator, returns the end of entries condition
 func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 	// Check end of entries condition
-	if iterator.Entry.Number == f.writtenHead.TotalEntries {
+	if iterator.Entry.Number >= f.writtenHead.TotalEntries {
 		return true, nil
 	}
 
@@ -700,10 +700,10 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 
 		// Bytes to forward until next data page
 		var forward int64
-		if (pos-pageHeaderSize)%pageDataSize == 0 {
+		if (pos-PageHeaderSize)%PageDataSize == 0 {
 			forward = 0
 		} else {
-			forward = pageDataSize - ((pos - pageHeaderSize) % pageDataSize)
+			forward = PageDataSize - ((pos - PageHeaderSize) % PageDataSize)
 		}
 
 		// Check end of data pages condition
@@ -780,9 +780,9 @@ func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 	// Start and end data pages
 	avg := 0
 	beg := 0
-	end := int((f.writtenHead.TotalLength - pageHeaderSize) / pageDataSize)
-	if (f.writtenHead.TotalLength-pageHeaderSize)%pageDataSize != 0 {
-		end = end + 1
+	end := int((f.writtenHead.TotalLength - PageHeaderSize) / PageDataSize)
+	if (f.writtenHead.TotalLength-PageHeaderSize)%PageDataSize == 0 {
+		end = end - 1
 	}
 
 	// Custom binary search
@@ -790,7 +790,7 @@ func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 		avg = beg + (end-beg)/2 // nolint:gomnd
 
 		// Seek for the start of avg data page
-		newPos := (avg * pageDataSize) + pageHeaderSize
+		newPos := (avg * PageDataSize) + PageHeaderSize
 		_, err := iterator.file.Seek(int64(newPos), io.SeekStart)
 		if err != nil {
 			log.Errorf("Error seeking page for iterator seek entry: %v", err)
@@ -869,17 +869,17 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	}
 
 	// Check if it is valid the current file position
-	if curpos < pageHeaderSize || curpos > int64(f.writtenHead.TotalLength) {
+	if curpos < PageHeaderSize || curpos > int64(f.writtenHead.TotalLength) {
 		log.Errorf("Error current file position outside a data page")
 		return 0, ErrCurrentPositionOutsideDataPage
 	}
 
 	// Check if exists another data page
 	var forward int64
-	if (curpos-pageHeaderSize)%pageDataSize == 0 {
+	if (curpos-PageHeaderSize)%PageDataSize == 0 {
 		forward = 0
 	} else {
-		forward = pageDataSize - (curpos-pageHeaderSize)%pageDataSize
+		forward = PageDataSize - (curpos-PageHeaderSize)%PageDataSize
 	}
 
 	if curpos+forward >= int64(f.writtenHead.TotalLength) {

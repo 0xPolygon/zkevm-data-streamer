@@ -96,6 +96,11 @@ func main() {
 					Usage: "bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)",
 					Value: "none",
 				},
+				&cli.BoolFlag{
+					Name:  "header",
+					Usage: "query file header information",
+					Value: false,
+				},
 				&cli.StringFlag{
 					Name:  "entry",
 					Usage: "entry number to query data (0..N)",
@@ -340,6 +345,7 @@ func runClient(ctx *cli.Context) error {
 	}
 	from := ctx.String("from")
 	fromBookmark := ctx.String("frombookmark")
+	queryHeader := ctx.Bool("header")
 	queryEntry := ctx.String("entry")
 	queryBookmark := ctx.String("bookmark")
 
@@ -356,6 +362,17 @@ func runClient(ctx *cli.Context) error {
 	err = c.Start()
 	if err != nil {
 		return err
+	}
+
+	// Query file header information
+	if queryHeader {
+		err = c.ExecCommand(datastreamer.CmdHeader)
+		if err != nil {
+			log.Infof("Error: %v", err)
+		} else {
+			log.Infof("QUERY HEADER: TotalEntries[%d] TotalLength[%d]", c.Header.TotalEntries, c.Header.TotalLength)
+		}
+		return nil
 	}
 
 	// Query entry option

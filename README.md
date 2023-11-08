@@ -178,7 +178,7 @@ Stream relay server included in the datastream library allows scaling the number
 ## DATASTREAM CLI DEMO APP
 Build the binary datastream demo app (`dsdemo`):
 ```
-make build
+make build-dsdemo
 ```
 Run the app without parameters to see the available commands:
 ```
@@ -244,6 +244,7 @@ OPTIONS:
    --server value        datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
    --from value          entry number to start the sync/streaming from (latest|0..N) (default: latest)
    --frombookmark value  bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)
+   --header              query file header information (default: false)
    --entry value         entry number to query data (0..N)
    --bookmark value      entry bookmark to query entry data pointed by it (0..N)
    --log value           log level (debug|info|warn|error) (default: info)
@@ -256,6 +257,10 @@ Run a datastream client with default parameters (server: `127.0.0.1:6900`, from:
 Or run a datastream client with custom parameters:
 ```
 ./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
+```
+Or just get the current stream header file information:
+```
+./dsdemo client --server 127.0.0.1:6969 --header
 ```
 ### RELAY
 Use the help option to check available parameters for the relay command:
