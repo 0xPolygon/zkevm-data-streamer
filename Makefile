@@ -17,9 +17,9 @@ install-linter: ## Installs the linter
 lint: ## Runs the linter
 	export "GOROOT=$$(go env GOROOT)" && $$(go env GOPATH)/bin/golangci-lint run
 
-.PHONY: build-dsdemo
-build-dsdemo: ## Builds datastream demo cli app (server, client, relay)
-	go build -o dsdemo cmd/main.go
+.PHONY: build-dsapp
+build-dsapp: ## Builds datastream demo cli app (server, client, relay)
+	go build -o dsapp cmd/main.go
 
 .PHONY: build-dsrelay
 build-dsrelay: ## Builds datastream relay cli app
