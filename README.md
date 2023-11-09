@@ -176,20 +176,20 @@ Stream relay server included in the datastream library allows scaling the number
 - ExecCommand(datastreamer.CmdBookmark) -> gets entry data pointed by bookmark and fills the `.Entry` field
 
 ## DATASTREAM CLI DEMO APP
-Build the binary datastream demo app (`dsdemo`):
+Build the binary datastream demo app (`dsapp`):
 ```
-make build
+make build-dsapp
 ```
 Run the app without parameters to see the available commands:
 ```
-./dsdemo
+./dsapp
 ```
 ```
 NAME:
-   dsdemo - Run a datastream server/client/relay demo cli app
+   dsapp - Run a datastream server/client/relay demo cli app
 
 USAGE:
-   dsdemo [global options] command [command options] [arguments...]
+   dsapp [global options] command [command options] [arguments...]
 
 COMMANDS:
    server   Run datastream server
@@ -203,14 +203,14 @@ GLOBAL OPTIONS:
 ### SERVER
 Use the help option to check available parameters for the server command:
 ```
-./dsdemo help server
+./dsapp help server
 ```
 ```
 NAME:
-   dsdemo server - Run datastream server
+   dsapp server - Run datastream server
 
 USAGE:
-   dsdemo server [command options] [arguments...]
+   dsapp server [command options] [arguments...]
 
 OPTIONS:
    --port value   exposed port for clients to connect (default: 6900)
@@ -222,28 +222,29 @@ OPTIONS:
 ```
 Run a datastream server with default parameters (port: `6900`, file: `datastream.bin`, log: `info`):
 ```
-./dsdemo server
+./dsapp server
 ```
 Or run a datastream server with custom parameters:
 ```
-./dsdemo server --port 6969 --file seqstream.bin --log warn
+./dsapp server --port 6969 --file seqstream.bin --log warn
 ```
 ### CLIENT
 Use the help option to check available parameters for the client command:
 ```
-./dsdemo help client
+./dsapp help client
 ```
 ```
 NAME:
-   dsdemo client - Run datastream client
+   dsapp client - Run datastream client
 
 USAGE:
-   dsdemo client [command options] [arguments...]
+   dsapp client [command options] [arguments...]
 
 OPTIONS:
    --server value        datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
    --from value          entry number to start the sync/streaming from (latest|0..N) (default: latest)
    --frombookmark value  bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)
+   --header              query file header information (default: false)
    --entry value         entry number to query data (0..N)
    --bookmark value      entry bookmark to query entry data pointed by it (0..N)
    --log value           log level (debug|info|warn|error) (default: info)
@@ -251,23 +252,27 @@ OPTIONS:
 ```
 Run a datastream client with default parameters (server: `127.0.0.1:6900`, from: `latest`, log: `info`)
 ```
-./dsdemo client
+./dsapp client
 ```
 Or run a datastream client with custom parameters:
 ```
-./dsdemo client --server 127.0.0.1:6969 --from 0 --log debug
+./dsapp client --server 127.0.0.1:6969 --from 0 --log debug
+```
+Or just get the current stream header file information:
+```
+./dsapp client --server 127.0.0.1:6969 --header
 ```
 ### RELAY
 Use the help option to check available parameters for the relay command:
 ```
-./dsdemo help relay
+./dsapp help relay
 ```
 ```
 NAME:
-   dsdemo relay - Run datastream relay
+   dsapp relay - Run datastream relay
 
 USAGE:
-   dsdemo relay [command options] [arguments...]
+   dsapp relay [command options] [arguments...]
 
 OPTIONS:
    --server value  datastream server address to connect (IP:port) (default: 127.0.0.1:6900)
@@ -278,7 +283,7 @@ OPTIONS:
 ```
 Run a datastream relay with default parameters (server: `127.0.0.1:6900`, port: `7900`, file: `datarelay.bin`, log: `info`)
 ```
-./dsdemo relay
+./dsapp relay
 ```
 
 ## USE CASE: zkEVM SEQUENCER ENTRIES

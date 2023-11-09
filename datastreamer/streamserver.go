@@ -285,7 +285,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second) // nolint:gomnd
 			s.killClient(clientId)
 			return
 		}
@@ -457,6 +457,9 @@ func (s *StreamServer) TruncateFile(entryNum uint64) error {
 		return ErrTruncateNotAllowed
 	}
 
+	// Log previous header
+	PrintHeaderEntry(s.streamFile.header, "(before truncate)")
+
 	// Truncate entries in the file
 	err := s.streamFile.truncateFile(entryNum)
 	if err != nil {
@@ -465,6 +468,10 @@ func (s *StreamServer) TruncateFile(entryNum uint64) error {
 
 	// Update entry number sequence
 	s.nextEntry = s.streamFile.header.TotalEntries
+
+	// Log current header
+	log.Infof("File truncated! Removed entries from %d (included) until end of file", entryNum)
+	PrintHeaderEntry(s.streamFile.header, "(after truncate)")
 
 	return nil
 }
@@ -935,7 +942,7 @@ func (s *StreamServer) streamingFromEntry(clientId string, fromEntry uint64) err
 
 		// Send the file data entry
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
-		log.Infof("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, clientId)
+		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, clientId)
 		if conn != nil {
 			_, err = conn.Write(binaryEntry)
 		} else {
