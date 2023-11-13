@@ -185,7 +185,7 @@ func runServer(ctx *cli.Context) error {
 	// Create stream server
 	s, err := datastreamer.NewServer(uint16(port), StSequencer, file, nil)
 	if err != nil {
-		os.Exit(1)
+		return err
 	}
 
 	// Start stream server
@@ -464,7 +464,7 @@ func runRelay(ctx *cli.Context) error {
 	// Create relay server
 	r, err := datastreamer.NewRelay(server, uint16(port), StSequencer, file, nil)
 	if err != nil {
-		os.Exit(1)
+		return err
 	}
 
 	// Start relay server
@@ -479,5 +479,6 @@ func runRelay(ctx *cli.Context) error {
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 	<-interruptSignal
 
+	log.Info(">> App end")
 	return nil
 }

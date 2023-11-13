@@ -72,10 +72,6 @@ func run(ctx *cli.Context) error {
 		Outputs:     []string{"stdout"},
 	})
 
-	// Interrupt signal
-	interruptSignal := make(chan os.Signal, 1)
-	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
-
 	log.Info(">> Relay server: begin")
 
 	// CLI parameters
@@ -101,6 +97,8 @@ func run(ctx *cli.Context) error {
 	}
 
 	// Wait for interrupt signal
+	interruptSignal := make(chan os.Signal, 1)
+	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 	<-interruptSignal
 
 	log.Info(">> Relay server: end")

@@ -171,6 +171,13 @@ func (f *StreamFile) openCreateFile() error {
 		return err
 	}
 
+	// Set initial file position to write
+	_, err = f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
+	if err != nil {
+		log.Errorf("Error seeking starting position to write: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -235,14 +242,14 @@ func (f *StreamFile) createHeaderPage() error {
 // writeMagicNumbers writes the magic bytes at the beginning of the header page
 func (f *StreamFile) writeMagicNumbers() error {
 	// Position at the start of the file
-	_, err := f.file.Seek(0, io.SeekStart)
+	_, err := f.fileHeader.Seek(0, io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking the end of the file: %v", err)
 		return err
 	}
 
 	// Write the magic numbers
-	_, err = f.file.Write(magicNumbers)
+	_, err = f.fileHeader.Write(magicNumbers)
 	if err != nil {
 		log.Errorf("Error writing magic numbers: %v", err)
 		return err
@@ -324,6 +331,24 @@ func (f *StreamFile) readHeaderEntry() error {
 	f.mutexHeader.Unlock()
 	if err != nil {
 		log.Error("Error decoding binary header")
+		return err
+	}
+
+	return nil
+}
+
+// rollbackHeader cancels current file written entries not committed
+func (f *StreamFile) rollbackHeader() error {
+	// Restore header
+	err := f.readHeaderEntry()
+	if err != nil {
+		return err
+	}
+
+	// Set file position to write
+	_, err = f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
+	if err != nil {
+		log.Errorf("Error seeking new position to write: %v", err)
 		return err
 	}
 
@@ -486,12 +511,7 @@ func (f *StreamFile) checkHeaderConsistency() error {
 
 // AddFileEntry writes new data entry to the data stream file
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
-	// Set the file position to write
-	_, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
-	if err != nil {
-		log.Errorf("Error seeking position to write: %v", err)
-		return err
-	}
+	var err error
 
 	// Convert from data struct to bytes stream
 	be := encodeFileEntryToBinary(e)
@@ -550,13 +570,6 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 // fillPagePadEntries fills remaining free space on the current data page with pad
 func (f *StreamFile) fillPagePadEntries() error {
-	// Set the file position to write
-	_, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
-	if err != nil {
-		log.Errorf("Error seeking fill pads position to write: %v", err)
-		return err
-	}
-
 	// Page remaining free space
 	var pageRemaining uint64
 	if (f.header.TotalLength-PageHeaderSize)%PageDataSize == 0 {
@@ -566,16 +579,17 @@ func (f *StreamFile) fillPagePadEntries() error {
 	}
 
 	if pageRemaining > 0 {
-		// Pad entries
-		entries := make([]byte, pageRemaining)
-		for i := 0; i < int(pageRemaining); i++ {
-			entries[i] = 0
+		// Write pad entry
+		_, err := f.file.Write([]byte{0})
+		if err != nil {
+			log.Errorf("Error writing pad entry: %v", err)
+			return err
 		}
 
-		// Write pad entries
-		_, err = f.file.Write(entries)
+		// Set the file position to write
+		_, err = f.file.Seek(int64(pageRemaining-1), io.SeekCurrent)
 		if err != nil {
-			log.Errorf("Error writing pad entries: %v", err)
+			log.Errorf("Error seeking next write position after pad: %v", err)
 			return err
 		}
 
@@ -1034,6 +1048,13 @@ func (f *StreamFile) truncateFile(entryNum uint64) error {
 	err = f.writeHeaderEntry()
 	if err != nil {
 		return nil
+	}
+
+	// Set new file position to write
+	_, err = f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
+	if err != nil {
+		log.Errorf("Error seeking new position to write: %v", err)
+		return err
 	}
 
 	return nil
