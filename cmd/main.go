@@ -213,7 +213,6 @@ func runServer(ctx *cli.Context) error {
 	dataTx = append(dataTx, 1)                           // nolint:gomnd
 	dataTx = binary.LittleEndian.AppendUint32(dataTx, 5) // nolint:gomnd
 	dataTx = append(dataTx, []byte{1, 2, 3, 4, 5}...)    // nolint:gomnd
-	updatedData := []byte{6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 
 	dataBlockEnd := make([]byte, 0)
 	dataBlockEnd = binary.LittleEndian.AppendUint64(dataBlockEnd, 1337) // nolint:gomnd
@@ -230,30 +229,6 @@ func runServer(ctx *cli.Context) error {
 		var latestRollback uint64 = 0
 
 		rand.Seed(time.Now().UnixNano())
-
-		// Get Header
-		header := s.GetHeader()
-		log.Infof(">> GetHeader test: nextEntryNumber[%d]", header.TotalEntries)
-
-		// Get Entry
-		if header.TotalEntries > 10 { // nolint:gomnd
-			entry, err := s.GetEntry(10) // nolint:gomnd
-			if err != nil {
-				log.Errorf(">> GetEntry test: error %v", err)
-			} else {
-				log.Infof(">> GetEntry test: num[%d] type[%d] length[%d] data[%v]", entry.Number, entry.Type, entry.Length, entry.Data)
-			}
-
-			// Update entry data
-			_ = s.UpdateEntryData(10, EtL2Tx, updatedData) // nolint:gomnd
-			// Get Entry again
-			entry, err = s.GetEntry(10) // nolint:gomnd
-			if err != nil {
-				log.Errorf(">> GetEntry test: error %v", err)
-			} else {
-				log.Infof(">> GetEntry test: num[%d] type[%d] length[%d] data[%v]", entry.Number, entry.Type, entry.Length, entry.Data)
-			}
-		}
 
 		// Atomic Operations loop
 		for n := 1; n <= int(numOpersLoop); n++ {

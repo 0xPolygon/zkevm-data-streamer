@@ -366,11 +366,6 @@ func (f *StreamFile) writeHeaderEntry() error {
 		log.Errorf("Error writing the header: %v", err)
 		return err
 	}
-	err = f.fileHeader.Sync()
-	if err != nil {
-		log.Errorf("Error flushing header data to disk: %v", err)
-		return err
-	}
 
 	// Update the written header
 	f.mutexHeader.Lock()
@@ -540,13 +535,6 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	_, err = f.file.Write(be)
 	if err != nil {
 		log.Errorf("Error writing the entry: %v", err)
-		return err
-	}
-
-	// Flush data to disk
-	err = f.file.Sync()
-	if err != nil {
-		log.Errorf("Error flushing new entry to disk: %v", err)
 		return err
 	}
 
