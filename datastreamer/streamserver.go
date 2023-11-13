@@ -297,7 +297,7 @@ func (s *StreamServer) StartAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Debugf("StartAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!AtomicOp START (%d)", s.nextEntry)
+	log.Debugf("!AtomicOp START (%d)", s.nextEntry)
 	// Check status of the server
 	if !s.started {
 		log.Errorf("AtomicOp not allowed. Server is not started")
@@ -429,7 +429,7 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	s.atomicOp.status = aoRollbacking
 
 	// Restore header in memory (discard current) from the file header (rollback entries)
-	err := s.streamFile.readHeaderEntry()
+	err := s.streamFile.rollbackHeader()
 	if err != nil {
 		return err
 	}
@@ -584,7 +584,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		start := time.Now().UnixMilli()
 
 		// For each connected and started client
-		log.Infof("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Debugf("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
 		for id, cli := range s.clients {
 			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
