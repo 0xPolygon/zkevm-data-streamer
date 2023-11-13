@@ -570,13 +570,6 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 // fillPagePadEntries fills remaining free space on the current data page with pad
 func (f *StreamFile) fillPagePadEntries() error {
-	// Set the file position to write
-	// _, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
-	// if err != nil {
-	// 	log.Errorf("Error seeking fill pads position to write: %v", err)
-	// 	return err
-	// }
-
 	// Page remaining free space
 	var pageRemaining uint64
 	if (f.header.TotalLength-PageHeaderSize)%PageDataSize == 0 {
@@ -599,19 +592,6 @@ func (f *StreamFile) fillPagePadEntries() error {
 			log.Errorf("Error seeking next write position after pad: %v", err)
 			return err
 		}
-
-		// Pad entries
-		// entries := make([]byte, pageRemaining)
-		// for i := 0; i < int(pageRemaining); i++ {
-		// 	entries[i] = 0
-		// }
-
-		// Write pad entries
-		// _, err = f.file.Write(entries)
-		// if err != nil {
-		// 	log.Errorf("Error writing pad entries: %v", err)
-		// 	return err
-		// }
 
 		// Update the current header in memory (on disk later when the commit arrives)
 		f.mutexHeader.Lock()
