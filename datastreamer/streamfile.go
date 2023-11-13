@@ -512,12 +512,6 @@ func (f *StreamFile) checkHeaderConsistency() error {
 // AddFileEntry writes new data entry to the data stream file
 func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	var err error
-	// Set the file position to write
-	// _, err := f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
-	// if err != nil {
-	// 	log.Errorf("Error seeking position to write: %v", err)
-	// 	return err
-	// }
 
 	// Convert from data struct to bytes stream
 	be := encodeFileEntryToBinary(e)
