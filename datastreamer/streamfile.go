@@ -366,11 +366,6 @@ func (f *StreamFile) writeHeaderEntry() error {
 		log.Errorf("Error writing the header: %v", err)
 		return err
 	}
-	err = f.fileHeader.Sync()
-	if err != nil {
-		log.Errorf("Error flushing header data to disk: %v", err)
-		return err
-	}
 
 	// Update the written header
 	f.mutexHeader.Lock()
@@ -519,13 +514,13 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 		// Check if file is full
 		if f.header.TotalLength == f.maxLength {
 			// Add new data pages to the file
-			log.Warnf(">> FULL FILE (TotalLength: %d) -> extending!", f.header.TotalLength)
+			log.Infof(">> FULL FILE (TotalLength: %d) -> extending!", f.header.TotalLength)
 			err = f.extendFile()
 			if err != nil {
 				return err
 			}
 
-			log.Warnf(">> New file max length: %d", f.maxLength)
+			log.Infof(">> New file max length: %d", f.maxLength)
 
 			// Re-set the file position to write
 			_, err = f.file.Seek(int64(f.header.TotalLength), io.SeekStart)
@@ -540,13 +535,6 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	_, err = f.file.Write(be)
 	if err != nil {
 		log.Errorf("Error writing the entry: %v", err)
-		return err
-	}
-
-	// Flush data to disk
-	err = f.file.Sync()
-	if err != nil {
-		log.Errorf("Error flushing new entry to disk: %v", err)
 		return err
 	}
 
@@ -590,8 +578,6 @@ func (f *StreamFile) fillPagePadEntries() error {
 			log.Errorf("Error writing pad entries: %v", err)
 			return err
 		}
-
-		// Sync/flush to disk will be done outside this function
 
 		// Update the current header in memory (on disk later when the commit arrives)
 		f.mutexHeader.Lock()
