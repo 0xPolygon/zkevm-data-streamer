@@ -1,19 +1,29 @@
 package main
 
 import (
-	"errors"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/viper"
 	"github.com/urfave/cli/v2"
 )
 
 const (
 	StSequencer = 1 // StSequencer sequencer stream type
 )
+
+type config struct {
+	Server string
+	Port   uint64
+	File   string
+	Log    string
+}
 
 func main() {
 	// Set default log level
@@ -28,28 +38,26 @@ func main() {
 	app.Usage = "Run a datastream relay"
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
-			Name:        "server",
-			Usage:       "datastream server address to connect (IP:port)",
-			Value:       "127.0.0.1:6900",
-			DefaultText: "127.0.0.1:6900",
+			Name:     "cfg",
+			Aliases:  []string{"c"},
+			Usage:    "Configuration file",
+			Required: false,
+		},
+		&cli.StringFlag{
+			Name:  "server",
+			Usage: "datastream server address to connect (IP:port)",
 		},
 		&cli.Uint64Flag{
-			Name:        "port",
-			Usage:       "exposed port for clients to connect",
-			Value:       7900, // nolint:gomnd
-			DefaultText: "7900",
+			Name:  "port",
+			Usage: "exposed port for clients to connect",
 		},
 		&cli.StringFlag{
-			Name:        "file",
-			Usage:       "relay data file name (*.bin)",
-			Value:       "datarelay.bin",
-			DefaultText: "datarelay.bin",
+			Name:  "file",
+			Usage: "relay data file name (*.bin)",
 		},
 		&cli.StringFlag{
-			Name:        "log",
-			Usage:       "log level (debug|info|warn|error)",
-			Value:       "info",
-			DefaultText: "info",
+			Name:  "log",
+			Usage: "log level (debug|info|warn|error)",
 		},
 	}
 	app.Action = run
@@ -62,28 +70,107 @@ func main() {
 	}
 }
 
+// defaultConfig parses the default configuration values
+func defaultConfig() (*config, error) {
+	cfg := config{
+		Server: "127.0.0.1:6900",
+		Port:   7900, // nolint:gomnd
+		File:   "datarelay.bin",
+		Log:    "info",
+	}
+
+	viper.SetConfigType("toml")
+	return &cfg, nil
+}
+
+// loadConfig loads the configuration
+func loadConfig(ctx *cli.Context) (*config, error) {
+	cfg, err := defaultConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	configFilePath := ctx.String("cfg")
+	if configFilePath != "" {
+		dirName, fileName := filepath.Split(configFilePath)
+
+		fileExtension := strings.TrimPrefix(filepath.Ext(fileName), ".")
+		fileNameWithoutExtension := strings.TrimSuffix(fileName, "."+fileExtension)
+
+		viper.AddConfigPath(dirName)
+		viper.SetConfigName(fileNameWithoutExtension)
+		viper.SetConfigType(fileExtension)
+	}
+
+	viper.AutomaticEnv()
+	replacer := strings.NewReplacer(".", "_")
+	viper.SetEnvKeyReplacer(replacer)
+	viper.SetEnvPrefix("ZKEVM_STREAM")
+
+	err = viper.ReadInConfig()
+	if err != nil {
+		_, ok := err.(viper.ConfigFileNotFoundError)
+		if ok {
+			log.Infof("config file not found")
+		} else {
+			log.Infof("error reading config file: ", err)
+			return nil, err
+		}
+	}
+
+	decodeHooks := []viper.DecoderConfigOption{
+		// this allows arrays to be decoded from env var separated by ",", example: MY_VAR="value1,value2,value3"
+		viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(mapstructure.TextUnmarshallerHookFunc(), mapstructure.StringToSliceHookFunc(","))),
+	}
+
+	err = viper.Unmarshal(&cfg, decodeHooks...)
+	if err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
 // run runs a datastream relay
 func run(ctx *cli.Context) error {
-	// Set log level
+	// Load config file
+	cfg, err := loadConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Overwrite with CLI parameters
+	port := ctx.Uint64("port")
+	if port != 0 {
+		cfg.Port = port
+	}
+
+	server := ctx.String("server")
+	if server != "" {
+		cfg.Server = server
+	}
+
+	file := ctx.String("file")
+	if file != "" {
+		cfg.File = file
+	}
+
 	logLevel := ctx.String("log")
+	if logLevel != "" {
+		cfg.Log = logLevel
+	}
+
+	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
-		Level:       logLevel,
+		Level:       cfg.Log,
 		Outputs:     []string{"stdout"},
 	})
 
-	log.Info(">> Relay server: begin")
-
-	// CLI parameters
-	server := ctx.String("server")
-	port := ctx.Uint64("port")
-	file := ctx.String("file")
-	if server == "" || file == "" || port <= 0 {
-		return errors.New("bad/missing parameters")
-	}
+	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s]", cfg.Port, cfg.File, cfg.Server, cfg.Log)
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(server, uint16(port), StSequencer, file, nil)
+	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), StSequencer, cfg.File, nil)
 	if err != nil {
 		log.Errorf(">> Relay server: NewRelay error! (%v)", err)
 		return err
@@ -101,6 +188,6 @@ func run(ctx *cli.Context) error {
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 	<-interruptSignal
 
-	log.Info(">> Relay server: end")
+	log.Info(">> Relay server finished")
 	return nil
 }

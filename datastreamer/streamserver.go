@@ -116,7 +116,9 @@ type StreamServer struct {
 	clients      map[string]*client
 	mutexClients sync.Mutex // Mutex for write access to clients map
 
-	nextEntry  uint64        // Next sequential entry number
+	nextEntry uint64 // Next sequential entry number
+	initEntry uint64 // Only used by the relay (initial next entry in the master server)
+
 	atomicOp   streamAO      // Current in progress (if any) atomic operation
 	stream     chan streamAO // Channel to stream committed atomic operations
 	streamFile *StreamFile
@@ -132,8 +134,9 @@ type streamAO struct {
 
 // client type for the server to manage clients
 type client struct {
-	conn   net.Conn
-	status ClientStatus
+	conn      net.Conn
+	status    ClientStatus
+	fromEntry uint64
 }
 
 // ResultEntry type for a result entry
@@ -156,6 +159,7 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 		ln:         nil,
 		clients:    make(map[string]*client),
 		nextEntry:  0,
+		initEntry:  0,
 
 		atomicOp: streamAO{
 			status:     aoNone,
@@ -253,8 +257,9 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 
 	s.mutexClients.Lock()
 	s.clients[clientId] = &client{
-		conn:   conn,
-		status: csStopped,
+		conn:      conn,
+		status:    csStopped,
+		fromEntry: 0,
 	}
 	s.mutexClients.Unlock()
 
@@ -593,19 +598,21 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 			// Send entries
 			for _, entry := range broadcastOp.entries {
-				log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
-				binaryEntry := encodeFileEntryToBinary(entry)
+				if entry.Number >= cli.fromEntry {
+					log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
+					binaryEntry := encodeFileEntryToBinary(entry)
 
-				// Send the file data entry
-				if cli.conn != nil {
-					_, err = cli.conn.Write(binaryEntry)
-				} else {
-					err = ErrNilConnection
-				}
-				if err != nil {
-					// Kill client connection
-					log.Warnf("Error sending entry to %s: %v", id, err)
-					s.killClient(id)
+					// Send the file data entry
+					if cli.conn != nil {
+						_, err = cli.conn.Write(binaryEntry)
+					} else {
+						err = ErrNilConnection
+					}
+					if err != nil {
+						// Kill client connection
+						log.Warnf("Error sending entry to %s: %v", id, err)
+						s.killClient(id)
+					}
 				}
 			}
 		}
@@ -715,12 +722,13 @@ func (s *StreamServer) processCmdStart(clientId string) error {
 	if err != nil {
 		return err
 	}
+	s.clients[clientId].fromEntry = fromEntry
 
 	// Log
 	log.Infof("Client %s command Start from %d", clientId, fromEntry)
 
 	// Check received param
-	if fromEntry > s.nextEntry {
+	if fromEntry > s.nextEntry && fromEntry > s.initEntry {
 		log.Infof("Start command invalid from entry %d for client %s", fromEntry, clientId)
 		err = ErrStartCommandInvalidParamFromEntry
 		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], clientId)
