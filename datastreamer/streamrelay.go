@@ -42,8 +42,17 @@ func (r *StreamRelay) Start() error {
 		return err
 	}
 
+	// Get total entries from the master server
+	err = r.client.ExecCommand(CmdHeader)
+	if err != nil {
+		log.Errorf("Error executing header command: %v", err)
+		return err
+	}
+	r.server.initEntry = r.client.Header.TotalEntries
+
 	// Sync with master server from latest received entry
 	r.client.FromEntry = r.server.GetHeader().TotalEntries
+	log.Infof("TotalEntries: RELAY %d of MASTER %d", r.client.FromEntry, r.server.initEntry)
 	err = r.client.ExecCommand(CmdStart)
 	if err != nil {
 		log.Errorf("Error executing start command: %v", err)
