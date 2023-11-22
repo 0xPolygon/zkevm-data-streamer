@@ -286,7 +286,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		}
 
 		// Manage the requested command
-		log.Infof("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientId)
+		log.Debugf("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientId)
 		err = s.processCommand(Command(command), clientId)
 		if err != nil {
 			// Kill client connection
