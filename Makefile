@@ -1,4 +1,5 @@
 arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+GOENVVARS := CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH)
 
 # Check dependencies
 # Check for Go
@@ -28,11 +29,11 @@ lint: ## Runs the linter
 
 .PHONY: build-dsapp
 build-dsapp: ## Builds datastream demo cli app (server, client, relay)
-	go build -o dsapp cmd/main.go
+	$(GOENVVARS) go build -o dsapp cmd/main.go
 
 .PHONY: build-dsrelay
 build-dsrelay: ## Builds datastream relay binary into ./dist
-	go build -o dist/dsrelay relay/main.go
+	$(GOENVVARS) go build -o dist/dsrelay relay/main.go
 
 .PHONY: build-docker
 build-docker: ## Builds a docker image with datastream relay binary

@@ -8,8 +8,9 @@ services:
     ports: 
       - 7900:7900
     volumes:
-      - /home/dpunisher/repo/zkevm-data-streamer/dist:/app
+      - ./dist:/app
+      - ./config/environments/${DATASTREAM_NETWORK}/config.toml:/app/config.toml
     command: 
       - "/bin/sh"
       - "-c"
-      - "/app/dsrelay"
+      - "/app/dsrelay --cfg /app/config.toml"
