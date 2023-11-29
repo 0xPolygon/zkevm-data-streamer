@@ -50,19 +50,19 @@ func (r *StreamRelay) Start() error {
 	}
 	r.server.initEntry = r.client.Header.TotalEntries
 
+	// Start server side before exec command `CmdStart`
+	err = r.server.Start()
+	if err != nil {
+		log.Errorf("Error starting relay server: %v", err)
+		return err
+	}
+
 	// Sync with master server from latest received entry
 	r.client.FromEntry = r.server.GetHeader().TotalEntries
 	log.Infof("TotalEntries: RELAY %d of MASTER %d", r.client.FromEntry, r.server.initEntry)
 	err = r.client.ExecCommand(CmdStart)
 	if err != nil {
 		log.Errorf("Error executing start command: %v", err)
-		return err
-	}
-
-	// Start server side
-	err = r.server.Start()
-	if err != nil {
-		log.Errorf("Error starting relay server: %v", err)
 		return err
 	}
 
