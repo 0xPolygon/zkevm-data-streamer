@@ -1,4 +1,5 @@
 arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+GOENVVARS := CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH)
 
 # Check dependencies
 # Check for Go
@@ -6,8 +7,17 @@ arguments := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 check-go:
 	@which go > /dev/null || (echo "Error: Go is not installed" && exit 1)
 
+# Check for Docker
+.PHONY: check-docker
+check-docker:
+	@which docker > /dev/null || (echo "Error: docker is not installed" && exit 1)
+
 # Targets that require the checks
 run-server: check-go
+build-dsapp: check-go
+build-dsrelay: check-go
+build-docker: check-docker
+build-docker-nc: check-docker
 
 .PHONY: install-linter
 install-linter: ## Installs the linter
@@ -19,11 +29,19 @@ lint: ## Runs the linter
 
 .PHONY: build-dsapp
 build-dsapp: ## Builds datastream demo cli app (server, client, relay)
-	go build -o dsapp cmd/main.go
+	$(GOENVVARS) go build -o dsapp cmd/main.go
 
 .PHONY: build-dsrelay
-build-dsrelay: ## Builds datastream relay cli app
-	go build -o dsrelay relay/main.go
+build-dsrelay: ## Builds datastream relay binary into ./dist
+	$(GOENVVARS) go build -o dist/dsrelay relay/main.go
+
+.PHONY: build-docker
+build-docker: ## Builds a docker image with datastream relay binary
+	docker build -t datastream-relay -f ./Dockerfile .
+
+.PHONY: build-docker-nc
+build-docker-nc: ## Builds a docker image with datastream relay binary but without build cache
+	docker build --no-cache=true -t datastream-relay -f ./Dockerfile .
 
 .PHONY: test
 test:

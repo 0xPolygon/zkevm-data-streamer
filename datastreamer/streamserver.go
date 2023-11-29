@@ -622,17 +622,17 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 // killClient disconnects the client and removes it from server clients struct
 func (s *StreamServer) killClient(clientId string) {
+	s.mutexClients.Lock()
 	if s.clients[clientId] != nil {
 		if s.clients[clientId].status != csKilled {
-			s.mutexClients.Lock()
 			s.clients[clientId].status = csKilled
 			if s.clients[clientId].conn != nil {
 				s.clients[clientId].conn.Close()
 			}
 			delete(s.clients, clientId)
-			s.mutexClients.Unlock()
 		}
 	}
+	s.mutexClients.Unlock()
 }
 
 // processCommand manages the received TCP commands from the clients

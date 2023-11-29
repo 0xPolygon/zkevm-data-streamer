@@ -1,0 +1,16 @@
+version: "3.5"
+
+services:
+  datastream-relay:
+    container_name: datastream-relay
+    restart: unless-stopped
+    image: datastream-relay
+    ports: 
+      - 7900:7900
+    volumes:
+      - ./dist:/app
+      - ./config/environments/${DATASTREAM_NETWORK}/config.toml:/app/config.toml
+    command: 
+      - "/bin/sh"
+      - "-c"
+      - "/app/dsrelay --cfg /app/config.toml"
