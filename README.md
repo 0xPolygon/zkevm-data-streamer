@@ -314,7 +314,8 @@ List of events (entry types):
 - Entry data:  
 >u64   blockL2Num  
 >u256  l2BlockHash  
->u256  stateRoot  
+>u256  stateRoot
+>u256  imStateRoot
 
 ### Update GER
 - Entry type = 4
