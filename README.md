@@ -306,6 +306,7 @@ List of events (entry types):
 - Entry data:  
 >u8   gasPricePercentage  
 >u8   isValid  // Intrinsic  
+>u256 stateRoot  
 >u32  encodedTXLength  
 >u8[] encodedTX  
 
@@ -314,8 +315,7 @@ List of events (entry types):
 - Entry data:  
 >u64   blockL2Num  
 >u256  l2BlockHash  
->u256  stateRoot
->u256  imStateRoot
+>u256  stateRoot  
 
 ### Update GER
 - Entry type = 4
