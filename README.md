@@ -74,10 +74,10 @@ Syncs from the bookmark (`fromBookmark`) and starts receiving data streaming fro
 Command format sent by the client:
 >u64 command = 4  
 >u64 streamType // e.g. 1:Sequencer  
->u32 bookmarkLength // Length of fromBookmark  
+>u32 bookmarkLength // Length of fromBookmark (Max bookmark length value is 16)  
 >u8[] fromBookmark  
 
-If already started terminates the connection.
+If already started or `bookmarkLength` exceeds the maximum length, terminates the connection.
 
 ### Stop
 Stops the reception of the streaming transmission.
@@ -113,10 +113,10 @@ Gets the data from the entry pointed by the bookmark (`bookmark`) in the format 
 Command format sent by the client:
 >u64 command = 5  
 >u64 streamType // e.g. 1:Sequencer  
->u32 bookmarkLength // Length of bookmark  
+>u32 bookmarkLength // Length of bookmark (Max bookmark length value is 16)  
 >u8[] bookmark  
 
-If streaming already started terminates the connection.
+If streaming already started or `bookmarkLength` exceeds the maximum length, terminates the connection.
 
 ### RESULT FORMAT (ResultEntry)
 Remember that all these TCP commands firstly return a response in the following detailed format:

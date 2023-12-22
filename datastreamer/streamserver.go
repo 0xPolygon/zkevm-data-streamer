@@ -37,8 +37,9 @@ type CommandError uint32
 const EntryTypeNotFound = math.MaxUint32
 
 const (
-	maxConnections = 100 // Maximum number of connected clients
-	streamBuffer   = 256 // Buffers for the stream channel
+	maxConnections    = 100 // Maximum number of connected clients
+	streamBuffer      = 256 // Buffers for the stream channel
+	maxBookmarkLength = 16  // Maximum number of bytes for a bookmark
 )
 
 const (
@@ -758,6 +759,12 @@ func (s *StreamServer) processCmdStartBookmark(clientId string) error {
 		return err
 	}
 
+	// Check maximum length allowed
+	if length > maxBookmarkLength {
+		log.Infof("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.", clientId, length, maxBookmarkLength)
+		return ErrBookmarkMaxLength
+	}
+
 	// Read bookmark parameter
 	bookmark, err := readFullBytes(length, conn)
 	if err != nil {
@@ -881,6 +888,12 @@ func (s *StreamServer) processCmdBookmark(clientId string) error {
 	length, err := readFullUint32(conn)
 	if err != nil {
 		return err
+	}
+
+	// Check maximum length allowed
+	if length > maxBookmarkLength {
+		log.Infof("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.", clientId, length, maxBookmarkLength)
+		return ErrBookmarkMaxLength
 	}
 
 	// Read bookmark parameter
