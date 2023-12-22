@@ -490,12 +490,12 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		if sanityBlock > 0 {
 			if blockNum != sanityBlock {
 				log.Infof("SANITY CHECK failed: Block received[%d] | Block expected[%d]", blockNum, sanityBlock)
-				return errors.New("sanity check failed for block sequence")
+				sanityBlock = blockNum
 			}
 		} else {
 			if blockNum != 0 {
 				log.Infof("SANITY CHECK failed: Block received[%d] | Block expected[0]", blockNum)
-				return errors.New("sanity check failed for block sequence")
+				sanityBlock = 0
 			}
 		}
 		sanityBlock++
@@ -507,15 +507,21 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		if sanityBookmark > 0 {
 			if bookmarkNum != sanityBookmark {
 				log.Infof("SANITY CHECK failed: Bookmark received[%d] | Bookmark expected[%d]", bookmarkNum, sanityBookmark)
-				return errors.New("sanity check failed for bookmark sequence")
+				sanityBookmark = bookmarkNum
 			}
 		} else {
 			if bookmarkNum != 0 {
 				log.Infof("SANITY CHECK failed: Bookmark received[%d] | Bookmark expected[0]", bookmarkNum)
-				return errors.New("sanity check failed for bookmark sequence")
+				sanityBookmark = 0
 			}
 		}
 		sanityBookmark++
+	}
+
+	// Sanity check end condition
+	if e.Number+1 >= c.Header.TotalEntries {
+		log.Infof("SANITY CHECK finished! From entry [%d] to entry [%d]", c.FromEntry, c.Header.TotalEntries-1)
+		return errors.New("sanity check finished")
 	}
 
 	return nil
