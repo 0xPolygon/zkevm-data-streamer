@@ -89,4 +89,6 @@ var (
 	ErrExecCommandNotAllowed = fmt.Errorf("execute command not allowed, client is not started")
 	// ErrBookmarkNotFound is returned when the bookmark is not found
 	ErrBookmarkNotFound = fmt.Errorf("bookmark not found")
+	// ErrBookmarkMaxLength is returned when the bookmark length exceeds maximum length
+	ErrBookmarkMaxLength = fmt.Errorf("bookmark max length")
 )
