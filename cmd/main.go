@@ -24,9 +24,12 @@ const (
 )
 
 var (
-	sanityEntry    uint64 = 0
-	sanityBlock    uint64 = 0
-	sanityBookmark uint64 = 0
+	initSanityEntry    bool   = false
+	initSanityBlock    bool   = false
+	initSanityBookmark bool   = false
+	sanityEntry        uint64 = 0
+	sanityBlock        uint64 = 0
+	sanityBookmark     uint64 = 0
 )
 
 // main runs a datastream server or client
@@ -465,20 +468,34 @@ func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *d
 
 // checkEntryBlockSanity checks entry, bookmark, and block sequence consistency
 func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	// Sanity check initialization
+	if !initSanityEntry {
+		initSanityEntry = true
+		if c.FromEntry > 0 {
+			sanityEntry = c.FromEntry
+		} else {
+			sanityEntry = 0
+		}
+	}
+
 	// Log work in progress
 	if e.Number%100000 == 0 {
-		log.Infof("Sanity check entry #%d...", e.Number)
+		log.Infof("Checking entry #%d...", e.Number)
 	}
 
 	// Sanity check for entry sequence
 	if sanityEntry > 0 {
 		if e.Number != sanityEntry {
-			log.Infof("SANITY CHECK failed: Entry received[%d] | Entry expected[%d]", e.Number, sanityEntry)
+			if e.Number < sanityEntry {
+				log.Warnf("(X) SANITY CHECK failed: REPEATED entries? Received[%d] | Entry expected[%d]", e.Number, sanityEntry)
+			} else {
+				log.Warnf("(X) SANITY CHECK failed: GAP entries? Received[%d] | Entry expected[%d]", e.Number, sanityEntry)
+			}
 			return errors.New("sanity check failed for entry sequence")
 		}
 	} else {
 		if e.Number != 0 {
-			log.Infof("SANITY CHECK failed: Entry received[%d] | Entry expected[0]", e.Number)
+			log.Warnf("(X) SANITY CHECK failed: Entry received[%d] | Entry expected[0]", e.Number)
 			return errors.New("sanity check failed for entry sequence")
 		}
 	}
@@ -489,13 +506,23 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		blockNum := binary.LittleEndian.Uint64(e.Data[8:16])
 		if sanityBlock > 0 {
 			if blockNum != sanityBlock {
-				log.Infof("SANITY CHECK failed: Block received[%d] | Block expected[%d]", blockNum, sanityBlock)
+				if blockNum < sanityBlock {
+					log.Infof("(X) SANITY CHECK failed (%d): REPEATED blocks? Received[%d] | Block expected[%d]", e.Number, blockNum, sanityBlock)
+				} else {
+					log.Infof("(X) SANITY CHECK failed (%d): GAP blocks? Received[%d] | Block expected[%d]", e.Number, blockNum, sanityBlock)
+				}
 				sanityBlock = blockNum
 			}
 		} else {
 			if blockNum != 0 {
-				log.Infof("SANITY CHECK failed: Block received[%d] | Block expected[0]", blockNum)
-				sanityBlock = 0
+				if initSanityBlock {
+					log.Infof("(X) SANITY CHECK failed (%d): Block received[%d] | Block expected[0]", e.Number, blockNum)
+					sanityBlock = 0
+				} else {
+					log.Infof("SANITY CHECK note (%d): First Block received[%d]", e.Number, blockNum)
+					sanityBlock = blockNum
+				}
+				initSanityBlock = true
 			}
 		}
 		sanityBlock++
@@ -506,13 +533,23 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		bookmarkNum := binary.LittleEndian.Uint64(e.Data[1:9])
 		if sanityBookmark > 0 {
 			if bookmarkNum != sanityBookmark {
-				log.Infof("SANITY CHECK failed: Bookmark received[%d] | Bookmark expected[%d]", bookmarkNum, sanityBookmark)
+				if bookmarkNum < sanityBookmark {
+					log.Infof("(X) SANITY CHECK failed (%d): REPEATED bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark)
+				} else {
+					log.Infof("(X) SANITY CHECK failed (%d): GAP bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark)
+				}
 				sanityBookmark = bookmarkNum
 			}
 		} else {
 			if bookmarkNum != 0 {
-				log.Infof("SANITY CHECK failed: Bookmark received[%d] | Bookmark expected[0]", bookmarkNum)
-				sanityBookmark = 0
+				if initSanityBookmark {
+					log.Infof("(X) SANITY CHECK failed (%d): Bookmark received[%d] | Bookmark expected[0]", e.Number, bookmarkNum)
+					sanityBookmark = 0
+				} else {
+					log.Infof("SANITY CHECK note (%d): First Bookmark received[%d]", e.Number, bookmarkNum)
+					sanityBookmark = bookmarkNum
+				}
+				initSanityBookmark = true
 			}
 		}
 		sanityBookmark++
