@@ -2,6 +2,7 @@ package datastreamer_test
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -10,14 +11,55 @@ import (
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
+// AUX ------------------------------------------------------------------------
+const hashLength = 32
+
+type hash [hashLength]byte
+
+func (h *hash) setBytes(b []byte) {
+	if len(b) > len(h) {
+		b = b[len(b)-hashLength:]
+	}
+
+	copy(h[hashLength-len(b):], b)
+}
+
+func bytesToHash(b []byte) hash {
+	var h hash
+	h.setBytes(b)
+	return h
+}
+
+func has0xPrefix(str string) bool {
+	return len(str) >= 2 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X')
+}
+
+func hex2Bytes(str string) []byte {
+	h, _ := hex.DecodeString(str)
+	return h
+}
+
+func fromHex(s string) []byte {
+	if has0xPrefix(s) {
+		s = s[2:]
+	}
+	if len(s)%2 == 1 {
+		s = "0" + s
+	}
+	return hex2Bytes(s)
+}
+
+func hexToHash(s string) hash { return bytesToHash(fromHex(s)) }
+
+// ----------------------------------------------------------------------------
+
 type TestEntry struct {
-	FieldA uint64      // 8 bytes
-	FieldB common.Hash // 32 bytes
-	FieldC []byte      // n bytes
+	FieldA uint64 // 8 bytes
+	FieldB hash   // 32 bytes
+	FieldC []byte // n bytes
 }
 
 type TestBookmark struct {
@@ -41,7 +83,7 @@ func (t TestEntry) Encode() []byte {
 
 func (t TestEntry) Decode(bytes []byte) TestEntry {
 	t.FieldA = binary.LittleEndian.Uint64(bytes[:8])
-	t.FieldB = common.BytesToHash(bytes[8:40])
+	t.FieldB = bytesToHash(bytes[8:40])
 	t.FieldC = bytes[40:]
 	return t
 }
@@ -69,27 +111,27 @@ var (
 	testEntries = []TestEntry{
 		{
 			FieldA: 0,
-			FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldB: hexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
 			FieldC: []byte("test entry 0"),
 		},
 		{
 			FieldA: 1,
-			FieldB: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldB: hexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
 			FieldC: []byte("test entry 1"),
 		},
 		{
 			FieldA: 2,
-			FieldB: common.HexToHash("0x2234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldB: hexToHash("0x2234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
 			FieldC: []byte("test entry 2"),
 		},
 		{
 			FieldA: 3,
-			FieldB: common.HexToHash("0x3234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldB: hexToHash("0x3234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
 			FieldC: []byte("test entry 3"),
 		},
 		{
 			FieldA: 4,
-			FieldB: common.HexToHash("0x3234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+			FieldB: hexToHash("0x3234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
 			FieldC: []byte("large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
 				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
 				"large test entry 4 large test entry 4 large test entry 4 large test entry 4" +
@@ -105,13 +147,13 @@ var (
 
 	badUpdateEntry = TestEntry{
 		FieldA: 10,
-		FieldB: common.HexToHash("0xa1cdef7890abcdef1234567890abcdef1234567890abcdef1234567890123456"),
+		FieldB: hexToHash("0xa1cdef7890abcdef1234567890abcdef1234567890abcdef1234567890123456"),
 		FieldC: []byte("test entry not updated"),
 	}
 
 	okUpdateEntry = TestEntry{
 		FieldA: 11,
-		FieldB: common.HexToHash("0xa2cdef7890abcdef1234567890abcdef1234567890abcdef1234567890123456"),
+		FieldB: hexToHash("0xa2cdef7890abcdef1234567890abcdef1234567890abcdef1234567890123456"),
 		FieldC: []byte("update entry"),
 	}
 
