@@ -370,8 +370,8 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
-			log.Infof("QUERY HEADER: TotalEntries[%d] TotalLength[%d] Version[%d] ChainID[%d]",
-				c.Header.TotalEntries, c.Header.TotalLength, c.Header.Version, c.Header.ChainID)
+			log.Infof("QUERY HEADER: TotalEntries[%d] TotalLength[%d] Version[%d] SystemID[%d]",
+				c.Header.TotalEntries, c.Header.TotalLength, c.Header.Version, c.Header.SystemID)
 		}
 		return nil
 	}

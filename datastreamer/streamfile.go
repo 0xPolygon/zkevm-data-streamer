@@ -41,7 +41,7 @@ type HeaderEntry struct {
 	packetType   uint8      // 1:Header
 	headLength   uint32     // Total length of header entry (38)
 	Version      uint8      // Stream file version
-	ChainID      uint64     // ChainID
+	SystemID     uint64     // System identifier (e.g. ChainID)
 	streamType   StreamType // 1:Sequencer
 	TotalLength  uint64     // Total bytes used in the file
 	TotalEntries uint64     // Total number of data entries (packet type PtData)
@@ -77,7 +77,7 @@ type iteratorFile struct {
 }
 
 // NewStreamFile creates stream file struct and opens or creates the stream binary data file
-func NewStreamFile(fn string, version uint8, chainID uint64, st StreamType) (*StreamFile, error) {
+func NewStreamFile(fn string, version uint8, systemID uint64, st StreamType) (*StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
 		pageSize:   PageDataSize,
@@ -90,7 +90,7 @@ func NewStreamFile(fn string, version uint8, chainID uint64, st StreamType) (*St
 			packetType:   PtHeader,
 			headLength:   headerSize,
 			Version:      version,
-			ChainID:      chainID,
+			SystemID:     systemID,
 			streamType:   st,
 			TotalLength:  0,
 			TotalEntries: 0,
@@ -370,7 +370,7 @@ func PrintHeaderEntry(e HeaderEntry, title string) {
 	log.Infof("packetType: [%d]", e.packetType)
 	log.Infof("headerLength: [%d]", e.headLength)
 	log.Infof("Version: [%d]", e.Version)
-	log.Infof("ChainID: [%d]", e.ChainID)
+	log.Infof("SystemID: [%d]", e.SystemID)
 	log.Infof("streamType: [%d]", e.streamType)
 	log.Infof("totalLength: [%d]", e.TotalLength)
 	log.Infof("totalEntries: [%d]", e.TotalEntries)
@@ -411,7 +411,7 @@ func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.headLength)
 	be = append(be, e.Version)
-	be = binary.BigEndian.AppendUint64(be, e.ChainID)
+	be = binary.BigEndian.AppendUint64(be, e.SystemID)
 	be = binary.BigEndian.AppendUint64(be, uint64(e.streamType))
 	be = binary.BigEndian.AppendUint64(be, e.TotalLength)
 	be = binary.BigEndian.AppendUint64(be, e.TotalEntries)
@@ -430,7 +430,7 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	e.packetType = b[0]
 	e.headLength = binary.BigEndian.Uint32(b[1:5])
 	e.Version = b[5]
-	e.ChainID = binary.BigEndian.Uint64(b[6:14])
+	e.SystemID = binary.BigEndian.Uint64(b[6:14])
 	e.streamType = StreamType(binary.BigEndian.Uint64(b[14:22]))
 	e.TotalLength = binary.BigEndian.Uint64(b[22:30])
 	e.TotalEntries = binary.BigEndian.Uint64(b[30:38])
