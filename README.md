@@ -297,9 +297,9 @@ List of events (entry types):
 >u64 batchNum  
 >u64 blockL2Num  
 >u64 timestamp  
->u256 l1BlockHash  
+>u8[32] l1BlockHash  
 >u8[32] globalExitRoot  
->u8[32] l1InfoRoot
+>u8[32] l1InfoRoot  
 >u8[20] coinbase  
 >u16 forkId  
 
@@ -308,7 +308,7 @@ List of events (entry types):
 - Entry data:  
 >u8   gasPricePercentage  
 >u8   isValid  // Intrinsic  
->u256 stateRoot  
+>u8[32] stateRoot  
 >u32  encodedTXLength  
 >u8[] encodedTX  
 
@@ -316,8 +316,8 @@ List of events (entry types):
 - Entry type = 3
 - Entry data:
 >u64  blockL2Num  
->u256 l2BlockHash  
->u256 stateRoot  
+>u8[32] l2BlockHash  
+>u8[32] stateRoot  
 
 ### Update GER
 - Entry type = 4
@@ -327,4 +327,4 @@ List of events (entry types):
 >u8[32] globalExitRoot  
 >u8[20] coinbase  
 >u16 forkId  
->u256  stateRoot  
+>u8[32]  stateRoot  
