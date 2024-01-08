@@ -298,6 +298,7 @@ List of events (entry types):
 >u64 blockL2Num  
 >u64 timestamp  
 >u8[32] globalExitRoot  
+>u8[32] infoRoot
 >u8[20] coinbase  
 >u16 forkId  
 
@@ -312,10 +313,12 @@ List of events (entry types):
 
 ### End L2 Block
 - Entry type = 3
-- Entry data:  
->u64   blockL2Num  
->u256  l2BlockHash  
->u256  stateRoot  
+- Entry data:
+
+>u64  blockL2Num  
+>u256 l2BlockHash  
+>u256 l1BlockHash  
+>u256 stateRoot  
 
 ### Update GER
 - Entry type = 4
