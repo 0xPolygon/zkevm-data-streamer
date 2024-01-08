@@ -297,6 +297,7 @@ List of events (entry types):
 >u64 batchNum  
 >u64 blockL2Num  
 >u64 timestamp  
+>u256 l1BlockHash  
 >u8[32] globalExitRoot  
 >u8[32] infoRoot
 >u8[20] coinbase  
@@ -316,7 +317,6 @@ List of events (entry types):
 - Entry data:
 >u64  blockL2Num  
 >u256 l2BlockHash  
->u256 l1BlockHash  
 >u256 stateRoot  
 
 ### Update GER
