@@ -40,8 +40,8 @@ const (
 type HeaderEntry struct {
 	packetType   uint8      // 1:Header
 	headLength   uint32     // Total length of header entry (38)
-	version      uint8      // Stream file version
-	chainID      uint64     // ChainID
+	Version      uint8      // Stream file version
+	ChainID      uint64     // ChainID
 	streamType   StreamType // 1:Sequencer
 	TotalLength  uint64     // Total bytes used in the file
 	TotalEntries uint64     // Total number of data entries (packet type PtData)
@@ -89,8 +89,8 @@ func NewStreamFile(fn string, version uint8, chainID uint64, st StreamType) (*St
 		header: HeaderEntry{
 			packetType:   PtHeader,
 			headLength:   headerSize,
-			version:      version,
-			chainID:      chainID,
+			Version:      version,
+			ChainID:      chainID,
 			streamType:   st,
 			TotalLength:  0,
 			TotalEntries: 0,
@@ -369,8 +369,8 @@ func PrintHeaderEntry(e HeaderEntry, title string) {
 	log.Infof("--- HEADER ENTRY %s -------------------------", title)
 	log.Infof("packetType: [%d]", e.packetType)
 	log.Infof("headerLength: [%d]", e.headLength)
-	log.Infof("version: [%d]", e.version)
-	log.Infof("chainID: [%d]", e.chainID)
+	log.Infof("Version: [%d]", e.Version)
+	log.Infof("ChainID: [%d]", e.ChainID)
 	log.Infof("streamType: [%d]", e.streamType)
 	log.Infof("totalLength: [%d]", e.TotalLength)
 	log.Infof("totalEntries: [%d]", e.TotalEntries)
@@ -410,8 +410,8 @@ func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.headLength)
-	be = append(be, e.version)
-	be = binary.BigEndian.AppendUint64(be, e.chainID)
+	be = append(be, e.Version)
+	be = binary.BigEndian.AppendUint64(be, e.ChainID)
 	be = binary.BigEndian.AppendUint64(be, uint64(e.streamType))
 	be = binary.BigEndian.AppendUint64(be, e.TotalLength)
 	be = binary.BigEndian.AppendUint64(be, e.TotalEntries)
@@ -429,8 +429,8 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 
 	e.packetType = b[0]
 	e.headLength = binary.BigEndian.Uint32(b[1:5])
-	e.version = b[5]
-	e.chainID = binary.BigEndian.Uint64(b[6:14])
+	e.Version = b[5]
+	e.ChainID = binary.BigEndian.Uint64(b[6:14])
 	e.streamType = StreamType(binary.BigEndian.Uint64(b[14:22]))
 	e.TotalLength = binary.BigEndian.Uint64(b[22:30])
 	e.TotalEntries = binary.BigEndian.Uint64(b[30:38])

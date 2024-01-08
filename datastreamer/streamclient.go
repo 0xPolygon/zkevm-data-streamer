@@ -503,7 +503,7 @@ func (c *StreamClient) getResult(cmd Command) ResultEntry {
 // getHeader consumes a header entry
 func (c *StreamClient) getHeader() HeaderEntry {
 	h := <-c.headers
-	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d]", c.Id, h.TotalEntries, h.TotalLength)
+	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d], Version[%d], ChainID[%d]", c.Id, h.TotalEntries, h.TotalLength, h.Version, h.ChainID)
 	return h
 }
 
