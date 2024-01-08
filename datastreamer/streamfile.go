@@ -18,7 +18,7 @@ var (
 const (
 	fileMode       = 0666        // Open file mode
 	magicNumSize   = 16          // Magic numbers size
-	headerSize     = 29          // Header data size
+	headerSize     = 38          // Header data size
 	PageHeaderSize = 4096        // PageHeaderSize is the size of header page (4 KB)
 	PageDataSize   = 1024 * 1024 // PageDataSize is the size of one data page (1 MB)
 	initPages      = 100         // Initial number of data pages
@@ -39,6 +39,8 @@ const (
 // HeaderEntry type for a header entry
 type HeaderEntry struct {
 	packetType   uint8      // 1:Header
+	version      uint8      // Stream file version
+	chainID      uint64     // ChainID
 	headLength   uint32     // Total length of header entry (29)
 	streamType   StreamType // 1:Sequencer
 	TotalLength  uint64     // Total bytes used in the file
@@ -75,7 +77,7 @@ type iteratorFile struct {
 }
 
 // NewStreamFile creates stream file struct and opens or creates the stream binary data file
-func NewStreamFile(fn string, st StreamType) (*StreamFile, error) {
+func NewStreamFile(fn string, version uint8, chainID uint64, st StreamType) (*StreamFile, error) {
 	sf := StreamFile{
 		fileName:   fn,
 		pageSize:   PageDataSize,
@@ -86,6 +88,8 @@ func NewStreamFile(fn string, st StreamType) (*StreamFile, error) {
 		fileHeader: nil,
 		header: HeaderEntry{
 			packetType:   PtHeader,
+			version:      version,
+			chainID:      chainID,
 			headLength:   headerSize,
 			streamType:   st,
 			TotalLength:  0,
@@ -364,6 +368,8 @@ func (f *StreamFile) getHeaderEntry() HeaderEntry {
 func PrintHeaderEntry(e HeaderEntry, title string) {
 	log.Infof("--- HEADER ENTRY %s -------------------------", title)
 	log.Infof("packetType: [%d]", e.packetType)
+	log.Infof("version: [%d]", e.version)
+	log.Infof("chainID: [%d]", e.chainID)
 	log.Infof("headerLength: [%d]", e.headLength)
 	log.Infof("streamType: [%d]", e.streamType)
 	log.Infof("totalLength: [%d]", e.TotalLength)
@@ -401,8 +407,10 @@ func (f *StreamFile) writeHeaderEntry() error {
 
 // encodeHeaderEntryToBinary encodes from a header entry type to binary bytes slice
 func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
-	be := make([]byte, 1)
+	be := make([]byte, 2) // nolint:gomnd
 	be[0] = e.packetType
+	be[1] = e.version
+	be = binary.BigEndian.AppendUint64(be, e.chainID)
 	be = binary.BigEndian.AppendUint32(be, e.headLength)
 	be = binary.BigEndian.AppendUint64(be, uint64(e.streamType))
 	be = binary.BigEndian.AppendUint64(be, e.TotalLength)
@@ -420,10 +428,12 @@ func decodeBinaryToHeaderEntry(b []byte) (HeaderEntry, error) {
 	}
 
 	e.packetType = b[0]
-	e.headLength = binary.BigEndian.Uint32(b[1:5])
-	e.streamType = StreamType(binary.BigEndian.Uint64(b[5:13]))
-	e.TotalLength = binary.BigEndian.Uint64(b[13:21])
-	e.TotalEntries = binary.BigEndian.Uint64(b[21:29])
+	e.version = b[1]
+	e.chainID = binary.BigEndian.Uint64(b[2:10])
+	e.headLength = binary.BigEndian.Uint32(b[10:14])
+	e.streamType = StreamType(binary.BigEndian.Uint64(b[14:22]))
+	e.TotalLength = binary.BigEndian.Uint64(b[22:30])
+	e.TotalEntries = binary.BigEndian.Uint64(b[30:38])
 
 	return e, nil
 }

@@ -197,7 +197,7 @@ func runServer(ctx *cli.Context) error {
 	}
 
 	// Create stream server
-	s, err := datastreamer.NewServer(uint16(port), StSequencer, file, nil)
+	s, err := datastreamer.NewServer(uint16(port), 1, 137, StSequencer, file, nil) // nolint:gomnd
 	if err != nil {
 		return err
 	}
@@ -585,7 +585,7 @@ func runRelay(ctx *cli.Context) error {
 	}
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(server, uint16(port), StSequencer, file, nil)
+	r, err := datastreamer.NewRelay(server, uint16(port), 1, 137, StSequencer, file, nil) // nolint:gomnd
 	if err != nil {
 		return err
 	}

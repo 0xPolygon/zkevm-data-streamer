@@ -195,7 +195,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	streamServer, err = datastreamer.NewServer(config.Port, streamType, config.Filename, &config.Log)
+	streamServer, err = datastreamer.NewServer(config.Port, 1, 137, streamType, config.Filename, &config.Log)
 	if err != nil {
 		panic(err)
 	}
