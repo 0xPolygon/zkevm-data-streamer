@@ -314,7 +314,6 @@ List of events (entry types):
 ### End L2 Block
 - Entry type = 3
 - Entry data:
-
 >u64  blockL2Num  
 >u256 l2BlockHash  
 >u256 l1BlockHash  
