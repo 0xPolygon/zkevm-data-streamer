@@ -299,7 +299,7 @@ List of events (entry types):
 >u64 timestamp  
 >u256 l1BlockHash  
 >u8[32] globalExitRoot  
->u8[32] infoRoot
+>u8[32] L1InfoRoot
 >u8[20] coinbase  
 >u16 forkId  
 
