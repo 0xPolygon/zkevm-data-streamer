@@ -31,7 +31,9 @@ At the beginning of the file there are the following magic bytes (file signature
 
 #### HEADER ENTRY format (HeaderEntry)
 >u8 packetType = 1 // 1:Header  
->u32 headerLength = 29 // Total length of header entry  
+>u32 headerLength = 38 // Total length of header entry  
+>u8 Version // Stream file version (starting from 1)  
+>u64 SystemID // E.g.: ChainID
 >u64 streamType // 1:Sequencer  
 >u64 TotalLength // Total bytes used in the file  
 >u64 TotalEntries // Total number of data entries  

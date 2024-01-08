@@ -112,6 +112,8 @@ type StreamServer struct {
 	fileName string // Stream file name
 	started  bool   // Flag server started
 
+	version      uint8
+	systemID     uint64
 	streamType   StreamType
 	ln           net.Listener
 	clients      map[string]*client
@@ -150,13 +152,15 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Config) (*StreamServer, error) {
+func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:     port,
 		fileName: fileName,
 		started:  false,
 
+		version:    version,
+		systemID:   systemID,
 		streamType: streamType,
 		ln:         nil,
 		clients:    make(map[string]*client),
@@ -184,7 +188,7 @@ func NewServer(port uint16, streamType StreamType, fileName string, cfg *log.Con
 
 	// Open (or create) the data stream file
 	var err error
-	s.streamFile, err = NewStreamFile(s.fileName, s.streamType)
+	s.streamFile, err = NewStreamFile(s.fileName, version, systemID, s.streamType)
 	if err != nil {
 		return nil, err
 	}
