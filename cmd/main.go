@@ -21,6 +21,9 @@ const (
 	EtL2BlockEnd   datastreamer.EntryType = 3 // EtL2BlockEnd entry type
 
 	StSequencer = 1 // StSequencer sequencer stream type
+
+	BookmarkL2Block byte = 0 // BookmarkL2Block bookmark type
+	BookmarkBatch   byte = 1 // BookmarkBatch bookmark type
 )
 
 var (
@@ -29,7 +32,8 @@ var (
 	initSanityBookmark bool   = false
 	sanityEntry        uint64 = 0
 	sanityBlock        uint64 = 0
-	sanityBookmark     uint64 = 0
+	sanityBookmark0    uint64 = 0
+	sanityBookmark1    uint64 = 0
 )
 
 // main runs a datastream server or client
@@ -119,6 +123,11 @@ func main() {
 					Name:  "bookmark",
 					Usage: "entry bookmark to query entry data pointed by it (0..N)",
 					Value: "none",
+				},
+				&cli.IntFlag{
+					Name:  "bookmarktype",
+					Usage: "bookmark type used for --bookmark and --frombookmark options (0..255)",
+					Value: 0,
 				},
 				&cli.BoolFlag{
 					Name:  "sanitycheck",
@@ -220,7 +229,7 @@ func runServer(ctx *cli.Context) error {
 
 		rand.Seed(time.Now().UnixNano())
 
-		init := s.GetHeader().TotalEntries / 4 // nolint:gomnd
+		init := s.GetHeader().TotalEntries / 5 // nolint:gomnd
 
 		// Atomic Operations loop
 		for n := uint64(0); n < numOpersLoop; n++ {
@@ -232,18 +241,24 @@ func runServer(ctx *cli.Context) error {
 			}
 
 			// Add stream entries (sample):
-			// 1.Bookmark
-			_, err := s.AddStreamBookmark(fakeBookmark(init + n))
+			// 1.Bookmark batch
+			_, err := s.AddStreamBookmark(fakeBookmark(BookmarkBatch, init+n))
 			if err != nil {
 				log.Errorf(">> App error! AddStreamBookmark: %v", err)
 			}
-			// 2.Block Start
+
+			// 2.Bookmark L2 block
+			_, err = s.AddStreamBookmark(fakeBookmark(BookmarkL2Block, init+n))
+			if err != nil {
+				log.Errorf(">> App error! AddStreamBookmark: %v", err)
+			}
+			// 3.Block Start
 			entryBlockStart, err := s.AddStreamEntry(EtL2BlockStart, fakeDataBlockStart(init+n))
 			if err != nil {
 				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockStart, err)
 				return
 			}
-			// 3.Tx
+			// 4.Tx
 			numTx := 1 //rand.Intn(20) + 1
 			for i := 1; i <= numTx; i++ {
 				_, err = s.AddStreamEntry(EtL2Tx, fakeDataTx())
@@ -252,7 +267,7 @@ func runServer(ctx *cli.Context) error {
 					return
 				}
 			}
-			// 4.Block End
+			// 5.Block End
 			_, err = s.AddStreamEntry(EtL2BlockEnd, fakeDataBlockEnd(init+n))
 			if err != nil {
 				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockEnd, err)
@@ -289,9 +304,9 @@ func runServer(ctx *cli.Context) error {
 	return nil
 }
 
-func fakeBookmark(blockNum uint64) []byte {
-	bookmark := []byte{0} // nolint:gomnd
-	bookmark = binary.LittleEndian.AppendUint64(bookmark, blockNum)
+func fakeBookmark(bookType byte, value uint64) []byte {
+	bookmark := []byte{bookType} // nolint:gomnd
+	bookmark = binary.LittleEndian.AppendUint64(bookmark, value)
 	return bookmark
 }
 
@@ -344,6 +359,11 @@ func runClient(ctx *cli.Context) error {
 	queryEntry := ctx.String("entry")
 	queryBookmark := ctx.String("bookmark")
 	sanityCheck := ctx.Bool("sanitycheck")
+	bookmarkType := ctx.Int("bookmarktype")
+	if bookmarkType < 0 || bookmarkType > 255 {
+		return errors.New("bad bookmarktype parameter, must be between 0 and 255")
+	}
+	bookType := byte(bookmarkType)
 
 	// Create client
 	c, err := datastreamer.NewClient(server, StSequencer)
@@ -398,14 +418,14 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		qBook := []byte{0} // nolint:gomnd
+		qBook := []byte{bookType} // nolint:gomnd
 		qBook = binary.LittleEndian.AppendUint64(qBook, uint64(qBookmark))
 		c.FromBookmark = qBook
 		err = c.ExecCommand(datastreamer.CmdBookmark)
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
-			log.Infof("QUERY BOOKMARK %v: Entry[%d] Length[%d] Type[%d] Data[%v]", qBook, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
+			log.Infof("QUERY BOOKMARK (%d)%v: Entry[%d] Length[%d] Type[%d] Data[%v]", bookType, qBook, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
 		}
 		return nil
 	}
@@ -422,7 +442,7 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		bookmark := []byte{0} // nolint:gomnd
+		bookmark := []byte{bookType} // nolint:gomnd
 		bookmark = binary.LittleEndian.AppendUint64(bookmark, uint64(fromBookNum))
 		c.FromBookmark = bookmark
 		err = c.ExecCommand(datastreamer.CmdStartBookmark)
@@ -531,29 +551,58 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 
 	// Sanity check for bookmarks
 	if e.Type == datastreamer.EtBookmark {
+		bookmarkType := e.Data[0]
 		bookmarkNum := binary.LittleEndian.Uint64(e.Data[1:9])
-		if sanityBookmark > 0 {
-			if bookmarkNum != sanityBookmark {
-				if bookmarkNum < sanityBookmark {
-					log.Infof("(X) SANITY CHECK failed (%d): REPEATED bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark)
-				} else {
-					log.Infof("(X) SANITY CHECK failed (%d): GAP bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark)
+
+		switch bookmarkType {
+		case BookmarkL2Block:
+			if sanityBookmark0 > 0 {
+				if bookmarkNum != sanityBookmark0 {
+					if bookmarkNum < sanityBookmark0 {
+						log.Infof("(X) SANITY CHECK failed (%d): REPEATED L2block bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark0)
+					} else {
+						log.Infof("(X) SANITY CHECK failed (%d): GAP L2block bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark0)
+					}
+					sanityBookmark0 = bookmarkNum
 				}
-				sanityBookmark = bookmarkNum
-			}
-		} else {
-			if bookmarkNum != 0 {
-				if initSanityBookmark {
-					log.Infof("(X) SANITY CHECK failed (%d): Bookmark received[%d] | Bookmark expected[0]", e.Number, bookmarkNum)
-					sanityBookmark = 0
-				} else {
-					log.Infof("SANITY CHECK note (%d): First Bookmark received[%d]", e.Number, bookmarkNum)
-					sanityBookmark = bookmarkNum
+			} else {
+				if bookmarkNum != 0 {
+					if initSanityBookmark {
+						log.Infof("(X) SANITY CHECK failed (%d): L2block Bookmark received[%d] | Bookmark expected[0]", e.Number, bookmarkNum)
+						sanityBookmark0 = 0
+					} else {
+						log.Infof("SANITY CHECK note (%d): First L2block Bookmark received[%d]", e.Number, bookmarkNum)
+						sanityBookmark0 = bookmarkNum
+					}
+					initSanityBookmark = true
 				}
-				initSanityBookmark = true
 			}
+			sanityBookmark0++
+
+		case BookmarkBatch:
+			if sanityBookmark1 > 0 {
+				if bookmarkNum != sanityBookmark1 {
+					if bookmarkNum < sanityBookmark1 {
+						log.Infof("(X) SANITY CHECK failed (%d): REPEATED Batch bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark1)
+					} else {
+						log.Infof("(X) SANITY CHECK failed (%d): GAP Batch bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark1)
+					}
+					sanityBookmark1 = bookmarkNum
+				}
+			} else {
+				if bookmarkNum != 0 {
+					if initSanityBookmark {
+						log.Infof("(X) SANITY CHECK failed (%d): Batch Bookmark received[%d] | Bookmark expected[0]", e.Number, bookmarkNum)
+						sanityBookmark1 = 0
+					} else {
+						log.Infof("SANITY CHECK note (%d): First Batch Bookmark received[%d]", e.Number, bookmarkNum)
+						sanityBookmark1 = bookmarkNum
+					}
+					initSanityBookmark = true
+				}
+			}
+			sanityBookmark1++
 		}
-		sanityBookmark++
 	}
 
 	// Sanity check end condition
