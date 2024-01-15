@@ -607,7 +607,8 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 
 	// Sanity check end condition
 	if e.Number+1 >= c.Header.TotalEntries {
-		log.Infof("SANITY CHECK finished! From entry [%d] to entry [%d]", c.FromEntry, c.Header.TotalEntries-1)
+		log.Infof("SANITY CHECK finished! From entry [%d] to entry [%d]. Latest L2block[%d], Bookmark0[%d], Bookmark1[%d]",
+			c.FromEntry, c.Header.TotalEntries-1, sanityBlock-1, sanityBookmark0-1, sanityBookmark1-1)
 		return errors.New("sanity check finished")
 	}
 
