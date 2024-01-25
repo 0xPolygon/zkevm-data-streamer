@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -19,6 +21,7 @@ const (
 	EtL2BlockStart datastreamer.EntryType = 1 // EtL2BlockStart entry type
 	EtL2Tx         datastreamer.EntryType = 2 // EtL2Tx entry type
 	EtL2BlockEnd   datastreamer.EntryType = 3 // EtL2BlockEnd entry type
+	EtUpdateGER    datastreamer.EntryType = 4 // EtUpdateGER entry type
 
 	StSequencer = 1 // StSequencer sequencer stream type
 
@@ -34,6 +37,14 @@ var (
 	sanityBlock        uint64 = 0
 	sanityBookmark0    uint64 = 0
 	sanityBookmark1    uint64 = 0
+	dumpBatchNumber    uint64 = 0
+	dumpBatchData      string
+	initDumpBatch      bool   = false
+	dumpEntryFirst     uint64 = 0
+	dumpEntryLast      uint64 = 0
+	dumpBlockFirst     uint64 = 0
+	dumpBlockLast      uint64 = 0
+	dumpTotalTx        uint64 = 0
 )
 
 // main runs a datastream server or client
@@ -133,6 +144,11 @@ func main() {
 					Name:  "sanitycheck",
 					Usage: "when receiving streaming check entry, bookmark, and block sequence consistency",
 					Value: false,
+				},
+				&cli.StringFlag{
+					Name:  "dumpbatch",
+					Usage: "batch number to dump data (0..N)",
+					Value: "none",
 				},
 				&cli.StringFlag{
 					Name:        "log",
@@ -364,6 +380,7 @@ func runClient(ctx *cli.Context) error {
 		return errors.New("bad bookmarktype parameter, must be between 0 and 255")
 	}
 	bookType := byte(bookmarkType)
+	paramDumpBatch := ctx.String("dumpbatch")
 
 	// Create client
 	c, err := datastreamer.NewClient(server, StSequencer)
@@ -373,7 +390,20 @@ func runClient(ctx *cli.Context) error {
 
 	// Set process entry callback function
 	if !sanityCheck {
-		c.SetProcessEntryFunc(printEntryNum)
+		if paramDumpBatch != "none" {
+			if from == "latest" {
+				from = "0"
+			}
+			nDumpBatch, err := strconv.Atoi(paramDumpBatch)
+			if err != nil {
+				return err
+			}
+			dumpBatchNumber = uint64(nDumpBatch)
+
+			c.SetProcessEntryFunc(doDumpBatchData)
+		} else {
+			c.SetProcessEntryFunc(printEntryNum)
+		}
 	} else {
 		c.SetProcessEntryFunc(checkEntryBlockSanity)
 	}
@@ -612,6 +642,81 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		return errors.New("sanity check finished")
 	}
 
+	return nil
+}
+
+// doDumpBatchData performs a batch data dump
+func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	type BatchDump struct {
+		Number     uint64 `json:"batchNumber"`
+		EntryFirst uint64 `json:"entryFirst"`
+		EntryLast  uint64 `json:"entryLast"`
+		BlockFirst uint64 `json:"l2BlockFirst"`
+		BlockLast  uint64 `json:"l2BlockLast"`
+		TotalTx    uint64 `json:"totalTx"`
+		Data       string `json:"batchData"`
+	}
+
+	if e.Type != EtL2BlockStart && e.Type != EtL2Tx && e.Type != EtL2BlockEnd {
+		return nil
+	}
+
+	// L2 block start
+	if e.Type == EtL2BlockStart {
+		batchNumber := binary.LittleEndian.Uint64(e.Data[0:8])
+		if batchNumber < dumpBatchNumber {
+			return nil
+		} else if (batchNumber > dumpBatchNumber) || (e.Number+1 >= c.Header.TotalEntries) {
+			log.Infof("DUMP BATCH finished! First entry[%d], last entry[%d], first block[%d], last block[%d], total tx[%d]",
+				dumpEntryFirst, dumpEntryLast, dumpBlockFirst, dumpBlockLast, dumpTotalTx)
+
+			// Dump to json file
+			fileName := fmt.Sprintf("dumpbatch%d.json", dumpBatchNumber)
+			file, err := os.Create(fileName)
+			if err != nil {
+				return errors.New("creating dump file")
+			}
+			defer file.Close()
+
+			bd := BatchDump{
+				Number:     dumpBatchNumber,
+				EntryFirst: dumpEntryFirst,
+				EntryLast:  dumpEntryLast,
+				BlockFirst: dumpBlockFirst,
+				BlockLast:  dumpBlockLast,
+				TotalTx:    dumpTotalTx,
+				Data:       dumpBatchData,
+			}
+
+			encoder := json.NewEncoder(file)
+			err = encoder.Encode(bd)
+			if err != nil {
+				return errors.New("writing dump file")
+			}
+
+			return errors.New("dump batch finished")
+		} else if batchNumber == dumpBatchNumber {
+			initDumpBatch = true
+
+			blockNum := binary.LittleEndian.Uint64(e.Data[8:16])
+			if dumpBlockFirst == 0 {
+				dumpBlockFirst = blockNum
+			}
+			dumpBlockLast = blockNum
+		}
+	} else if e.Type == EtL2Tx && initDumpBatch {
+		dumpTotalTx++
+	}
+
+	// Add data
+	if initDumpBatch {
+		if dumpEntryFirst == 0 {
+			dumpEntryFirst = e.Number
+		}
+		dumpEntryLast = e.Number
+
+		dumpBatchData = dumpBatchData + fmt.Sprintf("%02x%08x%08x%016x%x", 2, e.Length, e.Type, e.Number, e.Data) // nolint:gomnd
+	}
 	return nil
 }
 
