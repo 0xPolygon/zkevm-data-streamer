@@ -330,6 +330,6 @@ List of events (entry types):
 >u64 timestamp  
 >u8[32] globalExitRoot  
 >u8[20] coinbase  
->u16 forkID
+>u16 forkID  
 >u32 chainID  
 >u8[32]  stateRoot  
