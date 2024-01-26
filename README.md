@@ -298,8 +298,8 @@ List of events (entry types):
 - Entry data:  
 >u64 batchNum  
 >u64 blockL2Num  
->u64 timestamp
->u32 deltaTimestamp
+>u64 timestamp  
+>u32 deltaTimestamp  
 >u32 L1InfoTreeIndex    
 >u8[32] l1BlockHash  
 >u8[32] globalExitRoot  
@@ -327,7 +327,7 @@ List of events (entry types):
 - Entry type = 4
 - Entry data:  
 >u64 batchNum  
->u64 timestamp
+>u64 timestamp  
 >u8[32] globalExitRoot  
 >u8[20] coinbase  
 >u16 forkID
