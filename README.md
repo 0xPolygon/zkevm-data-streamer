@@ -304,7 +304,7 @@ List of events (entry types):
 >u8[32] l1BlockHash  
 >u8[32] globalExitRoot  
 >u8[20] coinbase  
->u16 forkID
+>u16 forkID  
 >u32 chainID  
 
 ### L2 TX
