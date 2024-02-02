@@ -75,14 +75,14 @@ type TestHeader struct {
 
 func (t TestEntry) Encode() []byte {
 	bytes := make([]byte, 0)
-	bytes = binary.LittleEndian.AppendUint64(bytes, t.FieldA)
+	bytes = binary.BigEndian.AppendUint64(bytes, t.FieldA)
 	bytes = append(bytes, t.FieldB[:]...)
 	bytes = append(bytes, t.FieldC[:]...)
 	return bytes
 }
 
 func (t TestEntry) Decode(bytes []byte) TestEntry {
-	t.FieldA = binary.LittleEndian.Uint64(bytes[:8])
+	t.FieldA = binary.BigEndian.Uint64(bytes[:8])
 	t.FieldB = bytesToHash(bytes[8:40])
 	t.FieldC = bytes[40:]
 	return t

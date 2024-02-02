@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -19,6 +21,7 @@ const (
 	EtL2BlockStart datastreamer.EntryType = 1 // EtL2BlockStart entry type
 	EtL2Tx         datastreamer.EntryType = 2 // EtL2Tx entry type
 	EtL2BlockEnd   datastreamer.EntryType = 3 // EtL2BlockEnd entry type
+	EtUpdateGER    datastreamer.EntryType = 4 // EtUpdateGER entry type
 
 	StSequencer = 1 // StSequencer sequencer stream type
 
@@ -34,6 +37,14 @@ var (
 	sanityBlock        uint64 = 0
 	sanityBookmark0    uint64 = 0
 	sanityBookmark1    uint64 = 0
+	dumpBatchNumber    uint64 = 0
+	dumpBatchData      string
+	initDumpBatch      bool   = false
+	dumpEntryFirst     uint64 = 0
+	dumpEntryLast      uint64 = 0
+	dumpBlockFirst     uint64 = 0
+	dumpBlockLast      uint64 = 0
+	dumpTotalTx        uint64 = 0
 )
 
 // main runs a datastream server or client
@@ -133,6 +144,11 @@ func main() {
 					Name:  "sanitycheck",
 					Usage: "when receiving streaming check entry, bookmark, and block sequence consistency",
 					Value: false,
+				},
+				&cli.StringFlag{
+					Name:  "dumpbatch",
+					Usage: "batch number to dump data (0..N)",
+					Value: "none",
 				},
 				&cli.StringFlag{
 					Name:        "log",
@@ -306,33 +322,38 @@ func runServer(ctx *cli.Context) error {
 
 func fakeBookmark(bookType byte, value uint64) []byte {
 	bookmark := []byte{bookType} // nolint:gomnd
-	bookmark = binary.LittleEndian.AppendUint64(bookmark, value)
+	bookmark = binary.BigEndian.AppendUint64(bookmark, value)
 	return bookmark
 }
 
 func fakeDataBlockStart(blockNum uint64) []byte {
 	dataBlockStart := make([]byte, 0)
-	dataBlockStart = binary.LittleEndian.AppendUint64(dataBlockStart, 101) // nolint:gomnd
-	dataBlockStart = binary.LittleEndian.AppendUint64(dataBlockStart, blockNum)
-	dataBlockStart = binary.LittleEndian.AppendUint64(dataBlockStart, uint64(time.Now().Unix()))
+	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, 101) // nolint:gomnd
+	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, blockNum)
+	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, uint64(time.Now().Unix()))
+	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 10)   // nolint:gomnd
+	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 1000) // nolint:gomnd
+	dataBlockStart = append(dataBlockStart, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
 	dataBlockStart = append(dataBlockStart, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
 	dataBlockStart = append(dataBlockStart, []byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24}...)
-	dataBlockStart = binary.LittleEndian.AppendUint16(dataBlockStart, 5) // nolint:gomnd
+	dataBlockStart = binary.BigEndian.AppendUint16(dataBlockStart, 5)   // nolint:gomnd
+	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 137) // nolint:gomnd
 	return dataBlockStart
 }
 
 func fakeDataTx() []byte {
-	dataTx := make([]byte, 0)                            // nolint:gomnd
-	dataTx = append(dataTx, 128)                         // nolint:gomnd
-	dataTx = append(dataTx, 1)                           // nolint:gomnd
-	dataTx = binary.LittleEndian.AppendUint32(dataTx, 5) // nolint:gomnd
-	dataTx = append(dataTx, []byte{1, 2, 3, 4, 5}...)    // nolint:gomnd
+	dataTx := make([]byte, 0)    // nolint:gomnd
+	dataTx = append(dataTx, 128) // nolint:gomnd
+	dataTx = append(dataTx, 1)   // nolint:gomnd
+	dataTx = append(dataTx, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
+	dataTx = binary.BigEndian.AppendUint32(dataTx, 5) // nolint:gomnd
+	dataTx = append(dataTx, []byte{1, 2, 3, 4, 5}...) // nolint:gomnd
 	return dataTx
 }
 
 func fakeDataBlockEnd(blockNum uint64) []byte {
 	dataBlockEnd := make([]byte, 0)
-	dataBlockEnd = binary.LittleEndian.AppendUint64(dataBlockEnd, blockNum)
+	dataBlockEnd = binary.BigEndian.AppendUint64(dataBlockEnd, blockNum)
 	dataBlockEnd = append(dataBlockEnd, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}...)
 	dataBlockEnd = append(dataBlockEnd, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}...)
 	return dataBlockEnd
@@ -364,6 +385,7 @@ func runClient(ctx *cli.Context) error {
 		return errors.New("bad bookmarktype parameter, must be between 0 and 255")
 	}
 	bookType := byte(bookmarkType)
+	paramDumpBatch := ctx.String("dumpbatch")
 
 	// Create client
 	c, err := datastreamer.NewClient(server, StSequencer)
@@ -373,7 +395,20 @@ func runClient(ctx *cli.Context) error {
 
 	// Set process entry callback function
 	if !sanityCheck {
-		c.SetProcessEntryFunc(printEntryNum)
+		if paramDumpBatch != "none" {
+			if from == "latest" {
+				from = "0"
+			}
+			nDumpBatch, err := strconv.Atoi(paramDumpBatch)
+			if err != nil {
+				return err
+			}
+			dumpBatchNumber = uint64(nDumpBatch)
+
+			c.SetProcessEntryFunc(doDumpBatchData)
+		} else {
+			c.SetProcessEntryFunc(printEntryNum)
+		}
 	} else {
 		c.SetProcessEntryFunc(checkEntryBlockSanity)
 	}
@@ -419,7 +454,7 @@ func runClient(ctx *cli.Context) error {
 			return err
 		}
 		qBook := []byte{bookType} // nolint:gomnd
-		qBook = binary.LittleEndian.AppendUint64(qBook, uint64(qBookmark))
+		qBook = binary.BigEndian.AppendUint64(qBook, uint64(qBookmark))
 		c.FromBookmark = qBook
 		err = c.ExecCommand(datastreamer.CmdBookmark)
 		if err != nil {
@@ -443,7 +478,7 @@ func runClient(ctx *cli.Context) error {
 			return err
 		}
 		bookmark := []byte{bookType} // nolint:gomnd
-		bookmark = binary.LittleEndian.AppendUint64(bookmark, uint64(fromBookNum))
+		bookmark = binary.BigEndian.AppendUint64(bookmark, uint64(fromBookNum))
 		c.FromBookmark = bookmark
 		err = c.ExecCommand(datastreamer.CmdStartBookmark)
 		if err != nil {
@@ -524,7 +559,7 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 
 	// Sanity check for block sequence
 	if e.Type == EtL2BlockStart {
-		blockNum := binary.LittleEndian.Uint64(e.Data[8:16])
+		blockNum := binary.BigEndian.Uint64(e.Data[8:16])
 		if sanityBlock > 0 {
 			if blockNum != sanityBlock {
 				if blockNum < sanityBlock {
@@ -552,7 +587,7 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 	// Sanity check for bookmarks
 	if e.Type == datastreamer.EtBookmark {
 		bookmarkType := e.Data[0]
-		bookmarkNum := binary.LittleEndian.Uint64(e.Data[1:9])
+		bookmarkNum := binary.BigEndian.Uint64(e.Data[1:9])
 
 		switch bookmarkType {
 		case BookmarkL2Block:
@@ -612,6 +647,81 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		return errors.New("sanity check finished")
 	}
 
+	return nil
+}
+
+// doDumpBatchData performs a batch data dump
+func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+	type BatchDump struct {
+		Number     uint64 `json:"batchNumber"`
+		EntryFirst uint64 `json:"entryFirst"`
+		EntryLast  uint64 `json:"entryLast"`
+		BlockFirst uint64 `json:"l2BlockFirst"`
+		BlockLast  uint64 `json:"l2BlockLast"`
+		TotalTx    uint64 `json:"totalTx"`
+		Data       string `json:"batchData"`
+	}
+
+	if e.Type != EtL2BlockStart && e.Type != EtL2Tx && e.Type != EtL2BlockEnd {
+		return nil
+	}
+
+	// L2 block start
+	if e.Type == EtL2BlockStart {
+		batchNumber := binary.BigEndian.Uint64(e.Data[0:8])
+		if batchNumber < dumpBatchNumber {
+			return nil
+		} else if (batchNumber > dumpBatchNumber) || (e.Number+1 >= c.Header.TotalEntries) {
+			log.Infof("DUMP BATCH finished! First entry[%d], last entry[%d], first block[%d], last block[%d], total tx[%d]",
+				dumpEntryFirst, dumpEntryLast, dumpBlockFirst, dumpBlockLast, dumpTotalTx)
+
+			// Dump to json file
+			fileName := fmt.Sprintf("dumpbatch%d.json", dumpBatchNumber)
+			file, err := os.Create(fileName)
+			if err != nil {
+				return errors.New("creating dump file")
+			}
+			defer file.Close()
+
+			bd := BatchDump{
+				Number:     dumpBatchNumber,
+				EntryFirst: dumpEntryFirst,
+				EntryLast:  dumpEntryLast,
+				BlockFirst: dumpBlockFirst,
+				BlockLast:  dumpBlockLast,
+				TotalTx:    dumpTotalTx,
+				Data:       dumpBatchData,
+			}
+
+			encoder := json.NewEncoder(file)
+			err = encoder.Encode(bd)
+			if err != nil {
+				return errors.New("writing dump file")
+			}
+
+			return errors.New("dump batch finished")
+		} else if batchNumber == dumpBatchNumber {
+			initDumpBatch = true
+
+			blockNum := binary.BigEndian.Uint64(e.Data[8:16])
+			if dumpBlockFirst == 0 {
+				dumpBlockFirst = blockNum
+			}
+			dumpBlockLast = blockNum
+		}
+	} else if e.Type == EtL2Tx && initDumpBatch {
+		dumpTotalTx++
+	}
+
+	// Add data
+	if initDumpBatch {
+		if dumpEntryFirst == 0 {
+			dumpEntryFirst = e.Number
+		}
+		dumpEntryLast = e.Number
+
+		dumpBatchData = dumpBatchData + fmt.Sprintf("%02x%08x%08x%016x%x", 2, e.Length, e.Type, e.Number, e.Data) // nolint:gomnd
+	}
 	return nil
 }
 
