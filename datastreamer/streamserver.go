@@ -14,8 +14,6 @@ import (
 )
 
 // Command type for the TCP client commands
-//
-//go:generate go run github.com/alvaroloes/enumer -type=Command
 type Command uint64
 
 // ClientStatus type for the status of the client
@@ -575,6 +573,55 @@ func (s *StreamServer) GetFirstEventAfterBookmark(bookmark []byte) (FileEntry, e
 	s.streamFile.iteratorEnd(iterator)
 
 	return iterator.Entry, err
+}
+
+// GetDataBetweenBookmarks returns the data between two bookmarks
+func (s *StreamServer) GetDataBetweenBookmarks(bookmarkFrom []byte, bookmarkTo []byte) ([]byte, error) {
+	var err error
+	var response []byte
+
+	// Get entry of the from bookmark
+	fromEntryNum, err := s.bookmark.GetBookmark(bookmarkFrom)
+	if err != nil {
+		return response, err
+	}
+
+	// Get entry of the to bookmark
+	toEntryNum, err := s.bookmark.GetBookmark(bookmarkTo)
+	if err != nil {
+		return response, err
+	}
+
+	// Check if the from bookmark is greater than the to bookmark
+	if fromEntryNum > toEntryNum {
+		return response, ErrInvalidBookmarkRange
+	}
+
+	// Initialize file stream iterator from bookmark's entry
+	iterator, err := s.streamFile.iteratorFrom(fromEntryNum, true)
+	if err != nil {
+		return response, err
+	}
+
+	// Loop until we reach the to bookmark
+	for {
+		// Get next entry data
+		end, err := s.streamFile.iteratorNext(iterator)
+
+		// Loop break conditions
+		if err != nil || end || iterator.Entry.Number >= toEntryNum {
+			break
+		}
+
+		if iterator.Entry.Type != EtBookmark {
+			response = append(response, iterator.Entry.Data...)
+		}
+	}
+
+	// Close iterator
+	s.streamFile.iteratorEnd(iterator)
+
+	return response, err
 }
 
 // clearAtomicOp sets the current atomic operation to none
@@ -1137,4 +1184,9 @@ func PrintResultEntry(e ResultEntry) {
 	log.Debugf("length: [%d]", e.length)
 	log.Debugf("errorNum: [%d]", e.errorNum)
 	log.Debugf("errorStr: [%s]", e.errorStr)
+}
+
+// IsACommand checks if a command is a valid command
+func (c Command) IsACommand() bool {
+	return c >= CmdStart && c <= CmdBookmark
 }

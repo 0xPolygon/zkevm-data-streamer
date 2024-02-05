@@ -158,6 +158,7 @@ Stream relay server included in the datastream library allows scaling the number
 - GetEntry(u64 entryNumber) -> returns struct FileEntry
 - GetBookmark(u8[] bookmark) -> returns u64 entryNumber
 - GetFirstEventAfterBookmark(u8[] bookmark) -> returns struct FileEntry
+- GetDataBetweenBookmarks(bookmarkFrom []byte, bookmarkTo []byte) ([]byte, error) -> return the array of data, ignoring bookmarks, between the given ones
 
 #### Update data API
 - UpdateEntryData(u64 entryNumber, u32 entryType, u8[] newData)
