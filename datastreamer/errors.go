@@ -91,4 +91,6 @@ var (
 	ErrBookmarkNotFound = fmt.Errorf("bookmark not found")
 	// ErrBookmarkMaxLength is returned when the bookmark length exceeds maximum length
 	ErrBookmarkMaxLength = fmt.Errorf("bookmark max length")
+	// ErrInvalidBookmarkRange is returned when the bookmark range is invalid
+	ErrInvalidBookmarkRange = fmt.Errorf("invalid bookmark range")
 )

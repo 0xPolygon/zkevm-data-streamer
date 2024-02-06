@@ -165,6 +165,10 @@ var (
 		FieldA: []byte{0, 2, 0, 0, 0, 0, 0, 0, 0},
 	}
 
+	testBookmark2 = TestBookmark{
+		FieldA: []byte{0, 3, 0, 0, 0, 0, 0, 0, 0},
+	}
+
 	headerEntry = TestHeader{
 		PacketType:   1,
 		HeadLength:   29,
@@ -224,6 +228,29 @@ func TestServer(t *testing.T) {
 	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[1].Encode())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), entryNumber)
+
+	entryNumber, err = streamServer.AddStreamBookmark(testBookmark2.Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), entryNumber)
+
+	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[2].Encode())
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), entryNumber)
+
+	err = streamServer.CommitAtomicOp()
+	require.NoError(t, err)
+
+	// Check get data between 2 bookmarks
+	data, err := streamServer.GetDataBetweenBookmarks(testBookmark.Encode(), testBookmark2.Encode())
+	require.NoError(t, err)
+	require.Equal(t, testEntries[1].Encode(), data)
+
+	// Truncate file
+	err = streamServer.TruncateFile(2)
+	require.NoError(t, err)
+
+	err = streamServer.StartAtomicOp()
+	require.NoError(t, err)
 
 	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[2].Encode())
 	require.NoError(t, err)
