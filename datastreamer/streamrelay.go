@@ -43,12 +43,12 @@ func (r *StreamRelay) Start() error {
 	}
 
 	// Get total entries from the master server
-	err = r.client.ExecCommand(CmdHeader)
+	header, err := r.client.ExecCommandGetHeader()
 	if err != nil {
 		log.Errorf("Error executing header command: %v", err)
 		return err
 	}
-	r.server.initEntry = r.client.Header.TotalEntries
+	r.server.initEntry = header.TotalEntries
 
 	// Start server side before exec command `CmdStart`
 	err = r.server.Start()
@@ -58,9 +58,9 @@ func (r *StreamRelay) Start() error {
 	}
 
 	// Sync with master server from latest received entry
-	r.client.FromEntry = r.server.GetHeader().TotalEntries
-	log.Infof("TotalEntries: RELAY %d of MASTER %d", r.client.FromEntry, r.server.initEntry)
-	err = r.client.ExecCommand(CmdStart)
+	fromEntry := r.server.GetHeader().TotalEntries
+	log.Infof("TotalEntries: RELAY %d of MASTER %d", fromEntry, r.server.initEntry)
+	err = r.client.ExecCommandStart(fromEntry)
 	if err != nil {
 		log.Errorf("Error executing start command: %v", err)
 		return err

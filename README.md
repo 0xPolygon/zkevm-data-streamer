@@ -90,7 +90,7 @@ Command format sent by the client:
 
 If not started terminates the connection.
 
-### Header 
+### GetHeader 
 Gets the current stream file header (`HeaderEntry` format defined in the [STREAM FILE](#stream-file) section), so stream clients can know the total number of entries and the size of the stream file.
 
 Command format sent by the client:
@@ -99,7 +99,7 @@ Command format sent by the client:
 
 If streaming already started terminates the connection.
 
-### Entry
+### GetEntry
 Gets the data from the entry (`entryNumber`) in the format `FileEntry` defined in the [STREAM FILE](#stream-file) section).
 
 Command format sent by the client:
@@ -109,7 +109,7 @@ Command format sent by the client:
 
 If streaming already started terminates the connection.
 
-### Bookmark
+### GetBookmark
 Gets the data from the entry pointed by the bookmark (`bookmark`) in the format `FileEntry` defined in the [STREAM FILE](#stream-file) section).
 
 Command format sent by the client:
@@ -165,18 +165,18 @@ Stream relay server included in the datastream library allows scaling the number
 
 ### CLIENT API
 - Create and start a datastream client (`StreamClient`) using the `NewClient` function followed by the `Start` function.
-- Executes server commands by calling `ExecCommand`
+- Executes server commands by calling `ExecCommandStart`, `ExecCommandStartBookmark`, `ExecCommandGetHeader`, `ExecCommandGetEntry`, `ExecCommandGetBookmark`, or `ExecCommandStop`.
 
 #### Streaming API
-- ExecCommand(datastreamer.CmdStart) -> starts receiving stream from the entry number specified by setting `.FromEntry` field
-- ExecCommand(datastreamer.CmdStartBookmark) -> starts receiving stream from the entry pointed by bookmark specified by setting `.FromBookmark` field
-- ExecCommand(datastreamer.CmdStop) -> stops receiving stream
-- SetProcessEntryFunc(f `ProcessEntryFunc`) -> sets the callback function for each entry received. Overrides default function that just prints the entry fields.
+- ExecCommandStart(fromEntry): Initiates the stream starting from the entry number specified in the parameter.
+- ExecCommandStartBookmark(fromBookmark): Initiates the stream starting from the entry pointed by the bookmark specified in the parameter.
+- ExecCommandStop(): Stops receiving stream.
+- SetProcessEntryFunc(f `ProcessEntryFunc`): Sets the callback function for each entry received. Overrides default function that just prints the entry fields.
 
 #### Query data API
-- ExecCommand(datastreamer.CmdHeader) -> gets data stream file header info and fills the `.Header` field
-- ExecCommand(datastreamer.CmdEntry) -> gets entry data from entry number and fills the `.Entry` field
-- ExecCommand(datastreamer.CmdBookmark) -> gets entry data pointed by bookmark and fills the `.Entry` field
+- ExecCommandGetHeader() -> returns struct HeaderEntry: Fetches stream file header info and returns it.
+- ExecCommandGetEntry(fromEntry) -> returns struct FileEntry: Fetches entry data from the specified entry number and returns it.
+- ExecCommandGetBookmark(fromBookmark) -> returns struct FileEntry: Fetches entry data pointed by the specified bookmark and returns it.
 
 ## DATASTREAM CLI DEMO APP
 Build the binary datastream demo app (`dsapp`):

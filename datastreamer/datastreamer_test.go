@@ -441,6 +441,11 @@ func TestServer(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
+	var fromBookmark []byte
+	var fromEntry uint64
+	var entry datastreamer.FileEntry
+	var header datastreamer.HeaderEntry
+
 	client, err := datastreamer.NewClient(fmt.Sprintf("localhost:%d", config.Port), streamType)
 	require.NoError(t, err)
 
@@ -448,37 +453,37 @@ func TestClient(t *testing.T) {
 	require.NoError(t, err)
 
 	// Case: Query data from not existing bookmark -> FAIL
-	client.FromBookmark = nonAddedBookmark.Encode()
-	err = client.ExecCommand(datastreamer.CmdBookmark)
+	fromBookmark = nonAddedBookmark.Encode()
+	_, err = client.ExecCommandGetBookmark(fromBookmark)
 	require.EqualError(t, datastreamer.ErrBookmarkNotFound, err.Error())
 
 	// Case: Query data from existing bookmark -> OK
-	client.FromBookmark = testBookmark.Encode()
-	err = client.ExecCommand(datastreamer.CmdBookmark)
+	fromBookmark = testBookmark.Encode()
+	_, err = client.ExecCommandGetBookmark(fromBookmark)
 	require.NoError(t, err)
 
 	// Case: Query data for entry number that doesn't exist -> FAIL
-	client.FromEntry = 5000
-	err = client.ExecCommand(datastreamer.CmdEntry)
+	fromEntry = 5000
+	_, err = client.ExecCommandGetEntry(fromEntry)
 	require.EqualError(t, datastreamer.ErrEntryNotFound, err.Error())
 
 	// Case: Query data for entry number that exists -> OK
-	client.FromEntry = 2
-	err = client.ExecCommand(datastreamer.CmdEntry)
+	fromEntry = 2
+	entry, err = client.ExecCommandGetEntry(fromEntry)
 	require.NoError(t, err)
-	require.Equal(t, testEntries[2], TestEntry{}.Decode(client.Entry.Data))
+	require.Equal(t, testEntries[2], TestEntry{}.Decode(entry.Data))
 
 	// Case: Query data for entry number that exists -> OK
-	client.FromEntry = 1
-	err = client.ExecCommand(datastreamer.CmdEntry)
+	fromEntry = 1
+	entry, err = client.ExecCommandGetEntry(fromEntry)
 	require.NoError(t, err)
-	require.Equal(t, testEntries[1], TestEntry{}.Decode(client.Entry.Data))
+	require.Equal(t, testEntries[1], TestEntry{}.Decode(entry.Data))
 
 	// Case: Query header info -> OK
-	err = client.ExecCommand(datastreamer.CmdHeader)
+	header, err = client.ExecCommandGetHeader()
 	require.NoError(t, err)
-	require.Equal(t, headerEntry.TotalEntries, client.Header.TotalEntries)
-	require.Equal(t, headerEntry.TotalLength, client.Header.TotalLength)
+	require.Equal(t, headerEntry.TotalEntries, header.TotalEntries)
+	require.Equal(t, headerEntry.TotalLength, header.TotalLength)
 
 	// Case: Start sync from not existing entry -> FAIL
 	// client.FromEntry = 22
@@ -496,8 +501,8 @@ func TestClient(t *testing.T) {
 	// require.NoError(t, err)
 
 	// Case: Start sync from existing bookmark -> OK
-	client.FromBookmark = testBookmark.Encode()
-	err = client.ExecCommand(datastreamer.CmdStartBookmark)
+	fromBookmark = testBookmark.Encode()
+	err = client.ExecCommandStartBookmark(fromBookmark)
 	require.NoError(t, err)
 
 	// Case: Query entry data with streaming started -> FAIL
@@ -511,12 +516,12 @@ func TestClient(t *testing.T) {
 	// require.EqualError(t, datastreamer.ErrResultCommandError, err.Error())
 
 	// Case: Stop receiving streaming -> OK
-	err = client.ExecCommand(datastreamer.CmdStop)
+	err = client.ExecCommandStop()
 	require.NoError(t, err)
 
 	// Case: Query entry data after stop the streaming -> OK
-	client.FromEntry = 2
-	err = client.ExecCommand(datastreamer.CmdEntry)
+	fromEntry = 2
+	entry, err = client.ExecCommandGetEntry(fromEntry)
 	require.NoError(t, err)
-	require.Equal(t, testEntries[2], TestEntry{}.Decode(client.Entry.Data))
+	require.Equal(t, testEntries[2], TestEntry{}.Decode(entry.Data))
 }
