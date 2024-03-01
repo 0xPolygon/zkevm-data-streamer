@@ -21,18 +21,15 @@ type ProcessEntryFunc func(*FileEntry, *StreamClient, *StreamServer) error
 
 // StreamClient type to manage a data stream client
 type StreamClient struct {
-	server     string // Server address to connect IP:port
-	streamType StreamType
-	conn       net.Conn
-	Id         string // Client id
-	started    bool   // Flag client started
-	connected  bool   // Flag client connected to server
-	streaming  bool   // Flag client streaming started
-
-	FromEntry    uint64      // Set starting entry number for the Start command
-	FromBookmark []byte      // Set starting bookmark for the StartBookmark command
-	Header       HeaderEntry // Header info received from the Header command
-	Entry        FileEntry   // Entry info received from the Entry command
+	server       string // Server address to connect IP:port
+	streamType   StreamType
+	conn         net.Conn
+	Id           string // Client id
+	started      bool   // Flag client started
+	connected    bool   // Flag client connected to server
+	streaming    bool   // Flag client streaming started
+	fromStream   uint64 // Start entry number from latest start command
+	totalEntries uint64 // Total entries from latest header command
 
 	results  chan ResultEntry // Channel to read command results
 	headers  chan HeaderEntry // Channel to read header entries from the command Header
@@ -48,13 +45,14 @@ type StreamClient struct {
 func NewClient(server string, streamType StreamType) (*StreamClient, error) {
 	// Create the client data stream
 	c := StreamClient{
-		server:     server,
-		streamType: streamType,
-		Id:         "",
-		started:    false,
-		connected:  false,
-		streaming:  false,
-		FromEntry:  0,
+		server:       server,
+		streamType:   streamType,
+		Id:           "",
+		started:      false,
+		connected:    false,
+		streaming:    false,
+		fromStream:   0,
+		totalEntries: 0,
 
 		results:  make(chan ResultEntry, resultsBuffer),
 		headers:  make(chan HeaderEntry, headersBuffer),
@@ -107,8 +105,7 @@ func (c *StreamClient) connectServer() bool {
 
 			// Restore streaming
 			if c.streaming {
-				c.FromEntry = c.nextEntry
-				err = c.execCommand(CmdStart, true)
+				_, _, err = c.execCommand(CmdStart, true, c.nextEntry, nil)
 				if err != nil {
 					c.closeConnection()
 					time.Sleep(5 * time.Second) // nolint:gomnd
@@ -132,77 +129,110 @@ func (c *StreamClient) closeConnection() {
 	c.connected = false
 }
 
-// ExecCommand executes a valid client TCP command
-func (c *StreamClient) ExecCommand(cmd Command) error {
-	return c.execCommand(cmd, false)
+// ExecCommandStart executes client TCP command to start streaming from entry
+func (c *StreamClient) ExecCommandStart(fromEntry uint64) error {
+	_, _, err := c.execCommand(CmdStart, false, fromEntry, nil)
+	return err
+}
+
+// ExecCommandStartBookmark executes client TCP command to start streaming from bookmark
+func (c *StreamClient) ExecCommandStartBookmark(fromBookmark []byte) error {
+	_, _, err := c.execCommand(CmdStartBookmark, false, 0, fromBookmark)
+	return err
+}
+
+// ExecCommandStop executes client TCP command to stop streaming
+func (c *StreamClient) ExecCommandStop() error {
+	_, _, err := c.execCommand(CmdStop, false, 0, nil)
+	return err
+}
+
+// ExecCommandGetHeader executes client TCP command to get the header
+func (c *StreamClient) ExecCommandGetHeader() (HeaderEntry, error) {
+	header, _, err := c.execCommand(CmdHeader, false, 0, nil)
+	return header, err
+}
+
+// ExecCommandGetEntry executes client TCP command to get an entry
+func (c *StreamClient) ExecCommandGetEntry(fromEntry uint64) (FileEntry, error) {
+	_, entry, err := c.execCommand(CmdEntry, false, fromEntry, nil)
+	return entry, err
+}
+
+// ExecCommandGetBookmark executes client TCP command to get a bookmark
+func (c *StreamClient) ExecCommandGetBookmark(fromBookmark []byte) (FileEntry, error) {
+	_, entry, err := c.execCommand(CmdBookmark, false, 0, fromBookmark)
+	return entry, err
 }
 
 // execCommand executes a valid client TCP command with deferred command result possibility
-func (c *StreamClient) execCommand(cmd Command, deferredResult bool) error {
+func (c *StreamClient) execCommand(cmd Command, deferredResult bool, fromEntry uint64, fromBookmark []byte) (HeaderEntry, FileEntry, error) {
 	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
+	header := HeaderEntry{}
+	entry := FileEntry{}
 
 	// Check status of the client
 	if !c.started {
 		log.Errorf("Execute command not allowed. Client is not started")
-		return ErrExecCommandNotAllowed
+		return header, entry, ErrExecCommandNotAllowed
 	}
 
 	// Check valid command
 	if !cmd.IsACommand() {
 		log.Errorf("%s Invalid command %d", c.Id, cmd)
-		return ErrInvalidCommand
+		return header, entry, ErrInvalidCommand
 	}
 
 	// Send command
 	err := writeFullUint64(uint64(cmd), c.conn)
 	if err != nil {
-		return err
+		return header, entry, err
 	}
 	// Send stream type
 	err = writeFullUint64(uint64(c.streamType), c.conn)
 	if err != nil {
-		return err
+		return header, entry, err
 	}
 
 	// Send the command parameters
 	switch cmd {
 	case CmdStart:
-		log.Infof("%s ...from entry %d", c.Id, c.FromEntry)
+		log.Infof("%s ...from entry %d", c.Id, fromEntry)
 		// Send starting/from entry number
-		err = writeFullUint64(c.FromEntry, c.conn)
+		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {
-			return err
+			return header, entry, err
 		}
 	case CmdStartBookmark:
-		log.Infof("%s ...from bookmark [%v]", c.Id, c.FromBookmark)
+		log.Infof("%s ...from bookmark [%v]", c.Id, fromBookmark)
 		// Send starting/from bookmark length
-		err = writeFullUint32(uint32(len(c.FromBookmark)), c.conn)
+		err = writeFullUint32(uint32(len(fromBookmark)), c.conn)
 		if err != nil {
-			return err
+			return header, entry, err
 		}
 		// Send starting/from bookmark
-		err = writeFullBytes(c.FromBookmark, c.conn)
+		err = writeFullBytes(fromBookmark, c.conn)
 		if err != nil {
-			return err
+			return header, entry, err
 		}
 	case CmdEntry:
-		log.Infof("%s ...get entry %d", c.Id, c.FromEntry)
+		log.Infof("%s ...get entry %d", c.Id, fromEntry)
 		// Send entry to retrieve
-		err = writeFullUint64(c.FromEntry, c.conn)
+		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {
-			return err
+			return header, entry, err
 		}
 	case CmdBookmark:
-		log.Infof("%s ...get bookmark [%v]", c.Id, c.FromBookmark)
+		log.Infof("%s ...get bookmark [%v]", c.Id, fromBookmark)
 		// Send bookmark length
-		err = writeFullUint32(uint32(len(c.FromBookmark)), c.conn)
+		err = writeFullUint32(uint32(len(fromBookmark)), c.conn)
 		if err != nil {
-			return err
+			return header, entry, err
 		}
 		// Send bookmark to retrieve
-		err = writeFullBytes(c.FromBookmark, c.conn)
+		err = writeFullBytes(fromBookmark, c.conn)
 		if err != nil {
-			return err
+			return header, entry, err
 		}
 	}
 
@@ -210,7 +240,7 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool) error {
 	if !deferredResult {
 		r := c.getResult(cmd)
 		if r.errorNum != uint32(CmdErrOK) {
-			return ErrResultCommandError
+			return header, entry, ErrResultCommandError
 		}
 	}
 
@@ -218,28 +248,30 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool) error {
 	switch cmd {
 	case CmdStart:
 		c.streaming = true
+		c.fromStream = fromEntry
 	case CmdStartBookmark:
 		c.streaming = true
 	case CmdStop:
 		c.streaming = false
 	case CmdHeader:
 		h := c.getHeader()
-		c.Header = h
+		header = h
+		c.totalEntries = header.TotalEntries
 	case CmdEntry:
 		e := c.getEntry()
 		if e.Type == EntryTypeNotFound {
-			return ErrEntryNotFound
+			return header, entry, ErrEntryNotFound
 		}
-		c.Entry = e
+		entry = e
 	case CmdBookmark:
 		e := c.getEntry()
 		if e.Type == EntryTypeNotFound {
-			return ErrBookmarkNotFound
+			return header, entry, ErrBookmarkNotFound
 		}
-		c.Entry = e
+		entry = e
 	}
 
-	return nil
+	return header, entry, nil
 }
 
 // writeFullUint64 writes to connection a complete uint64
@@ -526,6 +558,16 @@ func (c *StreamClient) getStreaming() {
 			log.Fatalf("%s Processing entry %d: %s. HALTED!", c.Id, e.Number, err.Error())
 		}
 	}
+}
+
+// GetFromStream returns streaming start entry number from the latest start command executed
+func (c *StreamClient) GetFromStream() uint64 {
+	return c.fromStream
+}
+
+// GetTotalEntries returns total entries number from the latest header command executed
+func (c *StreamClient) GetTotalEntries() uint64 {
+	return c.totalEntries
 }
 
 // SetProcessEntryFunc sets the callback function to process entry
