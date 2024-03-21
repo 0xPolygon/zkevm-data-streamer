@@ -69,6 +69,12 @@ func NewClient(server string, streamType StreamType) (*StreamClient, error) {
 	return &c, nil
 }
 
+// NewClientWithLogsConfig creates a new data stream client with logs configuration
+func NewClientWithLogsConfig(server string, streamType StreamType, logsConfig log.Config) (*StreamClient, error) {
+	log.Init(logsConfig)
+	return NewClient(server, streamType)
+}
+
 // Start connects to the data stream server and starts getting data from the server
 func (c *StreamClient) Start() error {
 	// Connect to server
