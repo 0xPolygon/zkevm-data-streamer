@@ -56,6 +56,10 @@ type FileEntry struct {
 	Data       []byte
 }
 
+func (e FileEntry) Encode() []byte {
+	return encodeFileEntryToBinary(e)
+}
+
 // StreamFile type to manage a binary stream file
 type StreamFile struct {
 	fileName   string
