@@ -56,6 +56,7 @@ type FileEntry struct {
 	Data       []byte
 }
 
+// Encode encodes the file entry to binary bytes
 func (e FileEntry) Encode() []byte {
 	return encodeFileEntryToBinary(e)
 }
