@@ -405,7 +405,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 
 	// Update header into the file (commit the new entries)
 	err := s.streamFile.writeHeaderEntry()
-	log.Infof("++CommitAtomicOp after writeHeaderEntry: %v", err)
+	log.Infof("[ds-debug] CommitAtomicOp after writeHeaderEntry: %v", err)
 	if err != nil {
 		return err
 	}
@@ -418,13 +418,13 @@ func (s *StreamServer) CommitAtomicOp() error {
 	atomic.entries = make([]FileEntry, len(s.atomicOp.entries))
 	copy(atomic.entries, s.atomicOp.entries)
 
-	log.Infof("++CommitAtomicOp before send to channel")
+	log.Infof("[ds-debug] CommitAtomicOp before send to channel")
 	s.stream <- atomic
-	log.Infof("++CommitAtomicOp after send to channel")
+	log.Infof("[ds-debug] CommitAtomicOp after send to channel")
 
 	// No atomic operation in progress
 	s.clearAtomicOp()
-	log.Infof("++CommitAtomicOp after clear")
+	log.Infof("[ds-debug] CommitAtomicOp after clear")
 
 	return nil
 }
