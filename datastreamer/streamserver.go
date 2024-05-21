@@ -646,9 +646,10 @@ func (s *StreamServer) broadcastAtomicOp() {
 		broadcastOp := <-s.stream
 		start := time.Now().UnixMilli()
 		var killedClientMap = map[string]struct{}{}
+		log.Infof("[ds-debug] broadcastAtomicOp before mutexClients lock")
 		s.mutexClients.Lock()
 		// For each connected and started client
-		log.Debugf("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Infof("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
 		for id, cli := range s.clients {
 			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
@@ -676,12 +677,13 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 		}
 		s.mutexClients.Unlock()
+		log.Infof("[ds-debug] broadcastAtomicOp after mutexClients lock")
 
 		for k := range killedClientMap {
 			s.killClient(k)
 		}
 
-		log.Debugf("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
+		log.Infof("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
 	}
 }
 
