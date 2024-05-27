@@ -259,6 +259,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	clientId := conn.RemoteAddr().String()
 	log.Debugf("New connection: %s", clientId)
 
+	log.Infof("[ds-debug] handleConnection before mutexClients lock")
 	s.mutexClients.Lock()
 	s.clients[clientId] = &client{
 		conn:      conn,
@@ -267,6 +268,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		clientId:  clientId,
 	}
 	s.mutexClients.Unlock()
+	log.Infof("[ds-debug] handleConnection after mutexClients unlock")
 
 	for {
 		// Read command
@@ -677,7 +679,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 		}
 		s.mutexClients.Unlock()
-		log.Infof("[ds-debug] broadcastAtomicOp after mutexClients lock")
+		log.Infof("[ds-debug] broadcastAtomicOp after mutexClients unlock")
 
 		for k := range killedClientMap {
 			s.killClient(k)
@@ -689,6 +691,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 // killClient disconnects the client and removes it from server clients struct
 func (s *StreamServer) killClient(clientId string) {
+	log.Infof("[ds-debug] killClient before mutexClients lock")
 	s.mutexClients.Lock()
 	if s.clients[clientId] != nil {
 		if s.clients[clientId].status != csKilled {
@@ -700,6 +703,7 @@ func (s *StreamServer) killClient(clientId string) {
 		}
 	}
 	s.mutexClients.Unlock()
+	log.Infof("[ds-debug] killClinet after mutexClients unlock")
 }
 
 // processCommand manages the received TCP commands from the clients
@@ -1072,16 +1076,20 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 }
 
 func (s *StreamServer) getSafeClient(clientId string) *client {
+	log.Infof("[ds-debug] getSafeClient before mutexClients lock")
 	s.mutexClients.Lock()
 	client := s.clients[clientId]
 	s.mutexClients.Unlock()
+	log.Infof("[ds-debug] getSafeClient after mutexClients unlock")
 	return client
 }
 
 func (s *StreamServer) getSafeClientsLen() int {
+	log.Infof("[ds-debug] getSafeClientLen before mutexClients lock")
 	s.mutexClients.Lock()
 	clientLen := len(s.clients)
 	s.mutexClients.Unlock()
+	log.Infof("[ds-debug] getSafeClientLen after mutexClients unlock")
 	return clientLen
 }
 
