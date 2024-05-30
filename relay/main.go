@@ -19,10 +19,11 @@ const (
 )
 
 type config struct {
-	Server string
-	Port   uint64
-	File   string
-	Log    string
+	Server     string
+	Port       uint64
+	File       string
+	Log        string
+	DeleteData bool
 }
 
 func main() {
@@ -73,10 +74,11 @@ func main() {
 // defaultConfig parses the default configuration values
 func defaultConfig() (*config, error) {
 	cfg := config{
-		Server: "127.0.0.1:6900",
-		Port:   7900, // nolint:gomnd
-		File:   "datarelay.bin",
-		Log:    "info",
+		Server:     "127.0.0.1:6900",
+		Port:       7900, // nolint:gomnd
+		File:       "datarelay.bin",
+		Log:        "info",
+		DeleteData: false,
 	}
 
 	viper.SetConfigType("toml")
@@ -160,6 +162,11 @@ func run(ctx *cli.Context) error {
 		cfg.Log = logLevel
 	}
 
+	deleteData := ctx.Bool("delete-data")
+	if cfg.DeleteData != deleteData {
+		cfg.DeleteData = deleteData
+	}
+
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
@@ -167,7 +174,14 @@ func run(ctx *cli.Context) error {
 		Outputs:     []string{"stdout"},
 	})
 
-	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s]", cfg.Port, cfg.File, cfg.Server, cfg.Log)
+	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s] delete data[%v]", cfg.Port, cfg.File, cfg.Server, cfg.Log, deleteData)
+
+	if deleteData {
+		log.Warnf(">> Warning Deleting data file: %s", cfg.File)
+		deleteDataFile(cfg.File)
+		log.Infof(">> Data file deleted: %s succeeded!", cfg.File)
+		return nil
+	}
 
 	// Create relay server
 	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), 1, 137, StSequencer, cfg.File, nil) // nolint:gomnd
@@ -190,4 +204,26 @@ func run(ctx *cli.Context) error {
 
 	log.Info(">> Relay server finished")
 	return nil
+}
+
+func deleteDataFile(fileName string) {
+	ind := strings.IndexRune(fileName, '.')
+	if ind == -1 {
+		fileName = fileName + ".bin"
+	}
+
+	err := os.Remove(fileName)
+	if err != nil {
+		log.Error("Error deleting file:", err)
+	} else {
+		log.Infof("File deleted: %s", fileName)
+	}
+
+	name := fileName[0:strings.IndexRune(fileName, '.')] + ".db"
+	err = os.RemoveAll(name)
+	if err != nil {
+		log.Errorf("Error deleting folder:", err)
+	} else {
+		log.Infof("Folder deleted: %s", name)
+	}
 }
