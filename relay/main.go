@@ -172,7 +172,7 @@ func run(ctx *cli.Context) error {
 	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s] delete data[%v]", cfg.Port, cfg.File, cfg.Server, cfg.Log, cfg.DeleteData)
 
 	if cfg.DeleteData {
-		log.Warnf(">> Warning Deleting data file: %s", cfg.File)
+		log.Infof(">> Warning Deleting data file: %s", cfg.File)
 		deleteDataFile(cfg.File)
 		log.Infof(">> Data file deleted: %s succeeded!", cfg.File)
 		return nil
@@ -207,29 +207,18 @@ func deleteDataFile(fileName string) {
 		fileName = fileName + ".bin"
 	}
 
-	_, err := os.Stat(fileName)
-	if os.IsExist(err) {
-		err := os.Remove(fileName)
-		if err != nil {
-			log.Error("Error deleting file:", err)
-		} else {
-			log.Infof("File deleted: %s", fileName)
-		}
+	err := os.Remove(fileName)
+	if err != nil {
+		log.Error("Error deleting file:", err)
 	} else {
-		log.Infof("File not found: %s", fileName)
+		log.Infof("File deleted: %s", fileName)
 	}
 
 	name := fileName[0:strings.IndexRune(fileName, '.')] + ".db"
-
-	_, err = os.Stat(name)
-	if os.IsExist(err) {
-		err = os.RemoveAll(name)
-		if err != nil {
-			log.Errorf("Error deleting folder:", err)
-		} else {
-			log.Infof("Folder deleted: %s", name)
-		}
+	err = os.RemoveAll(name)
+	if err != nil {
+		log.Errorf("Error deleting folder:", err)
 	} else {
-		log.Infof("Folder not found: %s", name)
+		log.Infof("Folder deleted: %s", name)
 	}
 }
