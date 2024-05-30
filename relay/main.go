@@ -212,18 +212,29 @@ func deleteDataFile(fileName string) {
 		fileName = fileName + ".bin"
 	}
 
-	err := os.Remove(fileName)
-	if err != nil {
-		log.Error("Error deleting file:", err)
+	_, err := os.Stat(fileName)
+	if os.IsExist(err) {
+		err := os.Remove(fileName)
+		if err != nil {
+			log.Error("Error deleting file:", err)
+		} else {
+			log.Infof("File deleted: %s", fileName)
+		}
 	} else {
-		log.Infof("File deleted: %s", fileName)
+		log.Infof("File not found: %s", fileName)
 	}
 
 	name := fileName[0:strings.IndexRune(fileName, '.')] + ".db"
-	err = os.RemoveAll(name)
-	if err != nil {
-		log.Errorf("Error deleting folder:", err)
+
+	_, err = os.Stat(name)
+	if os.IsExist(err) {
+		err = os.RemoveAll(name)
+		if err != nil {
+			log.Errorf("Error deleting folder:", err)
+		} else {
+			log.Infof("Folder deleted: %s", name)
+		}
 	} else {
-		log.Infof("Folder deleted: %s", name)
+		log.Infof("Folder not found: %s", name)
 	}
 }
