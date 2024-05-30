@@ -161,12 +161,7 @@ func run(ctx *cli.Context) error {
 	if logLevel != "" {
 		cfg.Log = logLevel
 	}
-
-	deleteData := ctx.Bool("delete-data")
-	if cfg.DeleteData != deleteData {
-		cfg.DeleteData = deleteData
-	}
-
+	
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
