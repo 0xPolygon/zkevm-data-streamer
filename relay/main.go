@@ -161,7 +161,7 @@ func run(ctx *cli.Context) error {
 	if logLevel != "" {
 		cfg.Log = logLevel
 	}
-	
+
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
@@ -169,9 +169,9 @@ func run(ctx *cli.Context) error {
 		Outputs:     []string{"stdout"},
 	})
 
-	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s] delete data[%v]", cfg.Port, cfg.File, cfg.Server, cfg.Log, deleteData)
+	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s] delete data[%v]", cfg.Port, cfg.File, cfg.Server, cfg.Log, cfg.DeleteData)
 
-	if deleteData {
+	if cfg.DeleteData {
 		log.Warnf(">> Warning Deleting data file: %s", cfg.File)
 		deleteDataFile(cfg.File)
 		log.Infof(">> Data file deleted: %s succeeded!", cfg.File)
