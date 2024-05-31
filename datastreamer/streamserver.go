@@ -2,9 +2,11 @@ package datastreamer
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -667,7 +669,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 						if index == 0 {
 							log.Infof("[ds-debug] before conn Write %s", id)
 						}
-						_, err = DeadlineWrite(cli.conn, binaryEntry, s.writeTimeout)
+						_, err = TimeoutWrite(cli.conn, binaryEntry, s.writeTimeout)
 						if index == 0 {
 							log.Infof("[ds-debug] after conn Write %s", id)
 						}
@@ -896,7 +898,7 @@ func (s *StreamServer) processCmdHeader(client *client) error {
 
 	// Send header entry to the client
 	if client.conn != nil {
-		_, err = DeadlineWrite(client.conn, binaryHeader, s.writeTimeout)
+		_, err = TimeoutWrite(client.conn, binaryHeader, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -937,7 +939,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
+		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -991,7 +993,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
+		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1030,7 +1032,7 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
 		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientId)
 		if client.conn != nil {
-			_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
+			_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 		} else {
 			err = ErrNilConnection
 		}
@@ -1067,7 +1069,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 	// Send the result entry to the client
 	var err error
 	if client.conn != nil {
-		_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
+		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1204,12 +1206,17 @@ func (c Command) IsACommand() bool {
 	return c >= CmdStart && c <= CmdBookmark
 }
 
-// DeadlineWrite sets a deadline time before write
-func DeadlineWrite(conn net.Conn, data []byte, timeout time.Duration) (int, error) {
+// TimeoutWrite sets a deadline time before write
+func TimeoutWrite(conn net.Conn, data []byte, timeout time.Duration) (int, error) {
 	err := conn.SetWriteDeadline(time.Now().Add(timeout))
 	if err != nil {
 		log.Warnf("Error setting write deadline: %v", err)
 	}
 	n, err := conn.Write(data)
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			log.Infof("[ds-debug] Write deadline exceeded! %v", err)
+		}
+	}
 	return n, err
 }
