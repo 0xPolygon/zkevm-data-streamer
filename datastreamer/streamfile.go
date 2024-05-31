@@ -388,7 +388,6 @@ func PrintHeaderEntry(e HeaderEntry, title string) {
 // writeHeaderEntry writes the memory header struct into the file header
 func (f *StreamFile) writeHeaderEntry() error {
 	// Position at the beginning of the file
-	log.Infof("[ds-debug] writeHeaderEntry before fileHeader Seek")
 	_, err := f.fileHeader.Seek(magicNumSize, io.SeekStart)
 	if err != nil {
 		log.Errorf("Error seeking the start of the file: %v", err)
@@ -396,19 +395,16 @@ func (f *StreamFile) writeHeaderEntry() error {
 	}
 
 	// Write after convert header struct to binary stream
-	log.Infof("[ds-debug] writeHeaderEntry before encodeHeaderEntryToBinary")
 	binaryHeader := encodeHeaderEntryToBinary(f.header)
-	log.Infof("writing header entry: %v", binaryHeader)
+	log.Debugf("writing header entry: %v", binaryHeader)
 	_, err = f.fileHeader.Write(binaryHeader)
 	if err != nil {
-		log.Errorf("Error writing the header: %v", err)
+		log.Errorf("Error writing the header %v: %v", binaryHeader, err)
 		return err
 	}
-	log.Infof("[ds-debug] writeHeaderEntry after fileHeader Write")
 
 	// Update the written header
 	f.mutexHeader.Lock()
-	log.Infof("[ds-debug] writeHeaderEntry inside mutexHeader")
 	f.writtenHead = f.header
 	f.mutexHeader.Unlock()
 	return nil

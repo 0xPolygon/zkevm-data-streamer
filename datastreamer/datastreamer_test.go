@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -101,6 +102,7 @@ var (
 			Level:       "debug",
 			Outputs:     []string{"stdout"},
 		},
+		WriteTimeout: time.Duration(3 * time.Second),
 	}
 	leveldb      = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
 	streamServer *datastreamer.StreamServer
@@ -199,7 +201,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	streamServer, err = datastreamer.NewServer(config.Port, 1, 137, streamType, config.Filename, &config.Log)
+	streamServer, err = datastreamer.NewServer(config.Port, 1, 137, streamType, config.Filename, config.WriteTimeout, &config.Log)
 	if err != nil {
 		panic(err)
 	}

@@ -106,9 +106,10 @@ var (
 
 // StreamServer type to manage a data stream server
 type StreamServer struct {
-	port     uint16 // Server stream port
-	fileName string // Stream file name
-	started  bool   // Flag server started
+	port         uint16        // Server stream port
+	fileName     string        // Stream file name
+	writeTimeout time.Duration // Timeout for write operations on client connection
+	started      bool          // Flag server started
 
 	version      uint8
 	systemID     uint64
@@ -150,12 +151,13 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, cfg *log.Config) (*StreamServer, error) {
+func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
-		port:     port,
-		fileName: fileName,
-		started:  false,
+		port:         port,
+		fileName:     fileName,
+		writeTimeout: writeTimeout,
+		started:      false,
 
 		version:    version,
 		systemID:   systemID,
@@ -259,7 +261,6 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	clientId := conn.RemoteAddr().String()
 	log.Debugf("New connection: %s", clientId)
 
-	log.Infof("[ds-debug] handleConnection before mutexClients lock")
 	s.mutexClients.Lock()
 	s.clients[clientId] = &client{
 		conn:      conn,
@@ -268,7 +269,6 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		clientId:  clientId,
 	}
 	s.mutexClients.Unlock()
-	log.Infof("[ds-debug] handleConnection after mutexClients unlock")
 
 	for {
 		// Read command
@@ -407,7 +407,6 @@ func (s *StreamServer) CommitAtomicOp() error {
 
 	// Update header into the file (commit the new entries)
 	err := s.streamFile.writeHeaderEntry()
-	log.Infof("[ds-debug] CommitAtomicOp after writeHeaderEntry: %v", err)
 	if err != nil {
 		return err
 	}
@@ -426,7 +425,6 @@ func (s *StreamServer) CommitAtomicOp() error {
 
 	// No atomic operation in progress
 	s.clearAtomicOp()
-	log.Infof("[ds-debug] CommitAtomicOp after clear")
 
 	return nil
 }
@@ -659,14 +657,20 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 
 			// Send entries
-			for _, entry := range broadcastOp.entries {
+			for index, entry := range broadcastOp.entries {
 				if entry.Number >= cli.fromEntry {
 					log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
 					binaryEntry := encodeFileEntryToBinary(entry)
 
 					// Send the file data entry
 					if cli.conn != nil {
-						_, err = cli.conn.Write(binaryEntry)
+						if index == 0 {
+							log.Infof("[ds-debug] before conn Write %s", id)
+						}
+						_, err = DeadlineWrite(cli.conn, binaryEntry, s.writeTimeout)
+						if index == 0 {
+							log.Infof("[ds-debug] after conn Write %s", id)
+						}
 					} else {
 						err = ErrNilConnection
 					}
@@ -674,6 +678,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 						// Kill client connection
 						log.Warnf("Error sending entry to %s: %v", id, err)
 						killedClientMap[id] = struct{}{}
+						break // skip rest of entries for this client
 					}
 				}
 			}
@@ -691,7 +696,6 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 // killClient disconnects the client and removes it from server clients struct
 func (s *StreamServer) killClient(clientId string) {
-	log.Infof("[ds-debug] killClient before mutexClients lock")
 	s.mutexClients.Lock()
 	if s.clients[clientId] != nil {
 		if s.clients[clientId].status != csKilled {
@@ -703,7 +707,6 @@ func (s *StreamServer) killClient(clientId string) {
 		}
 	}
 	s.mutexClients.Unlock()
-	log.Infof("[ds-debug] killClinet after mutexClients unlock")
 }
 
 // processCommand manages the received TCP commands from the clients
@@ -893,7 +896,7 @@ func (s *StreamServer) processCmdHeader(client *client) error {
 
 	// Send header entry to the client
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryHeader)
+		_, err = DeadlineWrite(client.conn, binaryHeader, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -934,7 +937,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryEntry)
+		_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -988,7 +991,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryEntry)
+		_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1027,7 +1030,7 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
 		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientId)
 		if client.conn != nil {
-			_, err = client.conn.Write(binaryEntry)
+			_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
 		} else {
 			err = ErrNilConnection
 		}
@@ -1064,7 +1067,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 	// Send the result entry to the client
 	var err error
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryEntry)
+		_, err = DeadlineWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1076,20 +1079,16 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 }
 
 func (s *StreamServer) getSafeClient(clientId string) *client {
-	log.Infof("[ds-debug] getSafeClient before mutexClients lock")
 	s.mutexClients.Lock()
 	client := s.clients[clientId]
 	s.mutexClients.Unlock()
-	log.Infof("[ds-debug] getSafeClient after mutexClients unlock")
 	return client
 }
 
 func (s *StreamServer) getSafeClientsLen() int {
-	log.Infof("[ds-debug] getSafeClientLen before mutexClients lock")
 	s.mutexClients.Lock()
 	clientLen := len(s.clients)
 	s.mutexClients.Unlock()
-	log.Infof("[ds-debug] getSafeClientLen after mutexClients unlock")
 	return clientLen
 }
 
@@ -1203,4 +1202,14 @@ func PrintResultEntry(e ResultEntry) {
 // IsACommand checks if a command is a valid command
 func (c Command) IsACommand() bool {
 	return c >= CmdStart && c <= CmdBookmark
+}
+
+// DeadlineWrite sets a deadline time before write
+func DeadlineWrite(conn net.Conn, data []byte, timeout time.Duration) (int, error) {
+	err := conn.SetWriteDeadline(time.Now().Add(timeout))
+	if err != nil {
+		log.Warnf("Error setting write deadline: %v", err)
+	}
+	n, err := conn.Write(data)
+	return n, err
 }
