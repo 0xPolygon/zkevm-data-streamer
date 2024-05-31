@@ -399,7 +399,7 @@ func (f *StreamFile) writeHeaderEntry() error {
 	log.Debugf("writing header entry: %v", binaryHeader)
 	_, err = f.fileHeader.Write(binaryHeader)
 	if err != nil {
-		log.Errorf("Error writing the header: %v", err)
+		log.Errorf("Error writing the header %v: %v", binaryHeader, err)
 		return err
 	}
 

@@ -1,6 +1,10 @@
 package datastreamer
 
-import "github.com/0xPolygonHermez/zkevm-data-streamer/log"
+import (
+	"time"
+
+	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+)
 
 // StreamRelay type to manage a data stream relay
 type StreamRelay struct {
@@ -9,7 +13,7 @@ type StreamRelay struct {
 }
 
 // NewRelay creates a new data stream relay
-func NewRelay(server string, port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, cfg *log.Config) (*StreamRelay, error) {
+func NewRelay(server string, port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, cfg *log.Config) (*StreamRelay, error) {
 	var r StreamRelay
 	var err error
 
@@ -21,7 +25,7 @@ func NewRelay(server string, port uint16, version uint8, systemID uint64, stream
 	}
 
 	// Create server side
-	r.server, err = NewServer(port, version, systemID, streamType, fileName, cfg)
+	r.server, err = NewServer(port, version, systemID, streamType, fileName, writeTimeout, cfg)
 	if err != nil {
 		log.Errorf("Error creating relay server side: %v", err)
 		return nil, err
