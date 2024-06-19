@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
@@ -19,11 +20,12 @@ const (
 )
 
 type config struct {
-	Server     string
-	Port       uint64
-	File       string
-	Log        string
-	DeleteData bool
+	Server       string
+	Port         uint64
+	File         string
+	WriteTimeout time.Duration
+	Log          string
+	DeleteData   bool
 }
 
 func main() {
@@ -74,11 +76,12 @@ func main() {
 // defaultConfig parses the default configuration values
 func defaultConfig() (*config, error) {
 	cfg := config{
-		Server:     "127.0.0.1:6900",
-		Port:       7900, // nolint:gomnd
-		File:       "datarelay.bin",
-		Log:        "info",
-		DeleteData: false,
+		Server:       "127.0.0.1:6900",
+		Port:         7900, // nolint:gomnd
+		File:         "datarelay.bin",
+		WriteTimeout: time.Duration(3 * time.Second), // nolint:gomnd
+		Log:          "info",
+		DeleteData:   false,
 	}
 
 	viper.SetConfigType("toml")
@@ -179,7 +182,7 @@ func run(ctx *cli.Context) error {
 	}
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), 1, 137, StSequencer, cfg.File, nil) // nolint:gomnd
+	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), 1, 137, StSequencer, cfg.File, cfg.WriteTimeout, nil) // nolint:gomnd
 	if err != nil {
 		log.Errorf(">> Relay server: NewRelay error! (%v)", err)
 		return err

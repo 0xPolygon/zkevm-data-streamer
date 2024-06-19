@@ -2,9 +2,11 @@ package datastreamer
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,9 +108,10 @@ var (
 
 // StreamServer type to manage a data stream server
 type StreamServer struct {
-	port     uint16 // Server stream port
-	fileName string // Stream file name
-	started  bool   // Flag server started
+	port         uint16        // Server stream port
+	fileName     string        // Stream file name
+	writeTimeout time.Duration // Timeout for write operations on client connection
+	started      bool          // Flag server started
 
 	version      uint8
 	systemID     uint64
@@ -150,12 +153,13 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, cfg *log.Config) (*StreamServer, error) {
+func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
-		port:     port,
-		fileName: fileName,
-		started:  false,
+		port:         port,
+		fileName:     fileName,
+		writeTimeout: writeTimeout,
+		started:      false,
 
 		version:    version,
 		systemID:   systemID,
@@ -393,7 +397,7 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 // CommitAtomicOp commits the current atomic operation and streams it to the clients
 func (s *StreamServer) CommitAtomicOp() error {
 	start := time.Now().UnixNano()
-	defer log.Debugf("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
 	log.Infof("!AtomicOp COMMIT (%d)", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
@@ -417,7 +421,9 @@ func (s *StreamServer) CommitAtomicOp() error {
 	atomic.entries = make([]FileEntry, len(s.atomicOp.entries))
 	copy(atomic.entries, s.atomicOp.entries)
 
+	log.Infof("[ds-debug] CommitAtomicOp before send to channel")
 	s.stream <- atomic
+	log.Infof("[ds-debug] CommitAtomicOp after send to channel")
 
 	// No atomic operation in progress
 	s.clearAtomicOp()
@@ -642,9 +648,10 @@ func (s *StreamServer) broadcastAtomicOp() {
 		broadcastOp := <-s.stream
 		start := time.Now().UnixMilli()
 		var killedClientMap = map[string]struct{}{}
+		log.Infof("[ds-debug] broadcastAtomicOp before mutexClients lock")
 		s.mutexClients.Lock()
 		// For each connected and started client
-		log.Debugf("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Infof("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
 		for id, cli := range s.clients {
 			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
@@ -652,14 +659,20 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 
 			// Send entries
-			for _, entry := range broadcastOp.entries {
+			for index, entry := range broadcastOp.entries {
 				if entry.Number >= cli.fromEntry {
 					log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
 					binaryEntry := encodeFileEntryToBinary(entry)
 
 					// Send the file data entry
 					if cli.conn != nil {
-						_, err = cli.conn.Write(binaryEntry)
+						if index == 0 {
+							log.Infof("[ds-debug] before conn Write %s", id)
+						}
+						_, err = TimeoutWrite(cli.conn, binaryEntry, s.writeTimeout)
+						if index == 0 {
+							log.Infof("[ds-debug] after conn Write %s", id)
+						}
 					} else {
 						err = ErrNilConnection
 					}
@@ -667,17 +680,19 @@ func (s *StreamServer) broadcastAtomicOp() {
 						// Kill client connection
 						log.Warnf("Error sending entry to %s: %v", id, err)
 						killedClientMap[id] = struct{}{}
+						break // skip rest of entries for this client
 					}
 				}
 			}
 		}
 		s.mutexClients.Unlock()
+		log.Infof("[ds-debug] broadcastAtomicOp after mutexClients unlock")
 
 		for k := range killedClientMap {
 			s.killClient(k)
 		}
 
-		log.Debugf("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
+		log.Infof("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
 	}
 }
 
@@ -883,7 +898,7 @@ func (s *StreamServer) processCmdHeader(client *client) error {
 
 	// Send header entry to the client
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryHeader)
+		_, err = TimeoutWrite(client.conn, binaryHeader, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -924,7 +939,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryEntry)
+		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -978,7 +993,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryEntry)
+		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1017,7 +1032,7 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
 		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientId)
 		if client.conn != nil {
-			_, err = client.conn.Write(binaryEntry)
+			_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 		} else {
 			err = ErrNilConnection
 		}
@@ -1054,7 +1069,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 	// Send the result entry to the client
 	var err error
 	if client.conn != nil {
-		_, err = client.conn.Write(binaryEntry)
+		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1189,4 +1204,19 @@ func PrintResultEntry(e ResultEntry) {
 // IsACommand checks if a command is a valid command
 func (c Command) IsACommand() bool {
 	return c >= CmdStart && c <= CmdBookmark
+}
+
+// TimeoutWrite sets a deadline time before write
+func TimeoutWrite(conn net.Conn, data []byte, timeout time.Duration) (int, error) {
+	err := conn.SetWriteDeadline(time.Now().Add(timeout))
+	if err != nil {
+		log.Warnf("Error setting write deadline: %v", err)
+	}
+	n, err := conn.Write(data)
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			log.Infof("[ds-debug] Write deadline exceeded! %v", err)
+		}
+	}
+	return n, err
 }

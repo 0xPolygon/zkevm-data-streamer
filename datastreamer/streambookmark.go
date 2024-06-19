@@ -56,7 +56,7 @@ func (b *StreamBookmark) GetBookmark(bookmark []byte) (uint64, error) {
 	// Get the bookmark from DB
 	entry, err := b.db.Get(bookmark, nil)
 	if err == leveldb.ErrNotFound {
-		log.Infof("Bookmark not found [%v]: %v", bookmark, err)
+		// log.Infof("Bookmark not found [%v]: %v", bookmark, err)
 		return 0, err
 	} else if err != nil {
 		log.Errorf("Error getting bookmark [%v]: %v", bookmark, err)
