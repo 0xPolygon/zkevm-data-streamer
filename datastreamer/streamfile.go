@@ -56,6 +56,11 @@ type FileEntry struct {
 	Data       []byte
 }
 
+// Encode encodes the file entry to binary bytes
+func (e FileEntry) Encode() []byte {
+	return encodeFileEntryToBinary(e)
+}
+
 // StreamFile type to manage a binary stream file
 type StreamFile struct {
 	fileName   string
@@ -394,7 +399,7 @@ func (f *StreamFile) writeHeaderEntry() error {
 	log.Debugf("writing header entry: %v", binaryHeader)
 	_, err = f.fileHeader.Write(binaryHeader)
 	if err != nil {
-		log.Errorf("Error writing the header: %v", err)
+		log.Errorf("Error writing the header %v: %v", binaryHeader, err)
 		return err
 	}
 

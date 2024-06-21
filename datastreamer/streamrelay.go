@@ -1,6 +1,10 @@
 package datastreamer
 
-import "github.com/0xPolygonHermez/zkevm-data-streamer/log"
+import (
+	"time"
+
+	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+)
 
 // StreamRelay type to manage a data stream relay
 type StreamRelay struct {
@@ -9,7 +13,7 @@ type StreamRelay struct {
 }
 
 // NewRelay creates a new data stream relay
-func NewRelay(server string, port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, cfg *log.Config) (*StreamRelay, error) {
+func NewRelay(server string, port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, cfg *log.Config) (*StreamRelay, error) {
 	var r StreamRelay
 	var err error
 
@@ -21,7 +25,7 @@ func NewRelay(server string, port uint16, version uint8, systemID uint64, stream
 	}
 
 	// Create server side
-	r.server, err = NewServer(port, version, systemID, streamType, fileName, cfg)
+	r.server, err = NewServer(port, version, systemID, streamType, fileName, writeTimeout, cfg)
 	if err != nil {
 		log.Errorf("Error creating relay server side: %v", err)
 		return nil, err
@@ -43,12 +47,12 @@ func (r *StreamRelay) Start() error {
 	}
 
 	// Get total entries from the master server
-	err = r.client.ExecCommand(CmdHeader)
+	header, err := r.client.ExecCommandGetHeader()
 	if err != nil {
 		log.Errorf("Error executing header command: %v", err)
 		return err
 	}
-	r.server.initEntry = r.client.Header.TotalEntries
+	r.server.initEntry = header.TotalEntries
 
 	// Start server side before exec command `CmdStart`
 	err = r.server.Start()
@@ -58,9 +62,9 @@ func (r *StreamRelay) Start() error {
 	}
 
 	// Sync with master server from latest received entry
-	r.client.FromEntry = r.server.GetHeader().TotalEntries
-	log.Infof("TotalEntries: RELAY %d of MASTER %d", r.client.FromEntry, r.server.initEntry)
-	err = r.client.ExecCommand(CmdStart)
+	fromEntry := r.server.GetHeader().TotalEntries
+	log.Infof("TotalEntries: RELAY %d of MASTER %d", fromEntry, r.server.initEntry)
+	err = r.client.ExecCommandStart(fromEntry)
 	if err != nil {
 		log.Errorf("Error executing start command: %v", err)
 		return err

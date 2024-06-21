@@ -95,6 +95,12 @@ func main() {
 					Value:       1000000, // nolint:gomnd
 					DefaultText: "1000000",
 				},
+				&cli.Uint64Flag{
+					Name:        "writetout",
+					Usage:       "timeout for write operations on client connections in ms (0=no timeout)",
+					Value:       3000, // nolint:gomnd
+					DefaultText: "3000",
+				},
 			},
 			Action: runServer,
 		},
@@ -188,6 +194,12 @@ func main() {
 					Value:       "info",
 					DefaultText: "info",
 				},
+				&cli.Uint64Flag{
+					Name:        "writetout",
+					Usage:       "timeout for write operations on client connections in ms (0=no timeout)",
+					Value:       3000, // nolint:gomnd
+					DefaultText: "3000",
+				},
 			},
 			Action: runRelay,
 		},
@@ -217,12 +229,13 @@ func runServer(ctx *cli.Context) error {
 	port := ctx.Uint64("port")
 	sleep := ctx.Uint64("sleep")
 	numOpersLoop := ctx.Uint64("opers")
+	writeTout := ctx.Uint64("writetout")
 	if file == "" || port <= 0 {
 		return errors.New("bad/missing parameters")
 	}
 
 	// Create stream server
-	s, err := datastreamer.NewServer(uint16(port), 1, 137, StSequencer, file, nil) // nolint:gomnd
+	s, err := datastreamer.NewServer(uint16(port), 1, 137, StSequencer, file, time.Duration(writeTout)*time.Millisecond, nil) // nolint:gomnd
 	if err != nil {
 		return err
 	}
@@ -421,12 +434,12 @@ func runClient(ctx *cli.Context) error {
 
 	// Query file header information
 	if queryHeader {
-		err = c.ExecCommand(datastreamer.CmdHeader)
+		header, err := c.ExecCommandGetHeader()
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
 			log.Infof("QUERY HEADER: TotalEntries[%d] TotalLength[%d] Version[%d] SystemID[%d]",
-				c.Header.TotalEntries, c.Header.TotalLength, c.Header.Version, c.Header.SystemID)
+				header.TotalEntries, header.TotalLength, header.Version, header.SystemID)
 		}
 		return nil
 	}
@@ -437,12 +450,11 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		c.FromEntry = uint64(qEntry)
-		err = c.ExecCommand(datastreamer.CmdEntry)
+		entry, err := c.ExecCommandGetEntry(uint64(qEntry))
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
-			log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]", qEntry, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
+			log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]", qEntry, entry.Number, entry.Length, entry.Type, entry.Data)
 		}
 		return nil
 	}
@@ -454,19 +466,17 @@ func runClient(ctx *cli.Context) error {
 			return err
 		}
 		qBook := []byte{bookType} // nolint:gomnd
-		qBook = binary.BigEndian.AppendUint64(qBook, uint64(qBookmark))
-		c.FromBookmark = qBook
-		err = c.ExecCommand(datastreamer.CmdBookmark)
+		entry, err := c.ExecCommandGetBookmark(binary.BigEndian.AppendUint64(qBook, uint64(qBookmark)))
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
-			log.Infof("QUERY BOOKMARK (%d)%v: Entry[%d] Length[%d] Type[%d] Data[%v]", bookType, qBook, c.Entry.Number, c.Entry.Length, c.Entry.Type, c.Entry.Data)
+			log.Infof("QUERY BOOKMARK (%d)%v: Entry[%d] Length[%d] Type[%d] Data[%v]", bookType, qBook, entry.Number, entry.Length, entry.Type, entry.Data)
 		}
 		return nil
 	}
 
 	// Command header: Get status
-	err = c.ExecCommand(datastreamer.CmdHeader)
+	header, err := c.ExecCommandGetHeader()
 	if err != nil {
 		return err
 	}
@@ -478,24 +488,23 @@ func runClient(ctx *cli.Context) error {
 			return err
 		}
 		bookmark := []byte{bookType} // nolint:gomnd
-		bookmark = binary.BigEndian.AppendUint64(bookmark, uint64(fromBookNum))
-		c.FromBookmark = bookmark
-		err = c.ExecCommand(datastreamer.CmdStartBookmark)
+		err = c.ExecCommandStartBookmark(binary.BigEndian.AppendUint64(bookmark, uint64(fromBookNum)))
 		if err != nil {
 			return err
 		}
 	} else {
 		// Command start: Sync and start streaming receive from entry number
+		var fromEntry uint64
 		if from == "latest" { // nolint:gomnd
-			c.FromEntry = c.Header.TotalEntries
+			fromEntry = header.TotalEntries
 		} else {
 			fromNum, err := strconv.Atoi(from)
 			if err != nil {
 				return err
 			}
-			c.FromEntry = uint64(fromNum)
+			fromEntry = uint64(fromNum)
 		}
-		err = c.ExecCommand(datastreamer.CmdStart)
+		err = c.ExecCommandStart(fromEntry)
 		if err != nil {
 			return err
 		}
@@ -507,7 +516,7 @@ func runClient(ctx *cli.Context) error {
 	<-interruptSignal
 
 	// Command stop: Stop streaming
-	err = c.ExecCommand(datastreamer.CmdStop)
+	err = c.ExecCommandStop()
 	if err != nil {
 		return err
 	}
@@ -527,8 +536,8 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 	// Sanity check initialization
 	if !initSanityEntry {
 		initSanityEntry = true
-		if c.FromEntry > 0 {
-			sanityEntry = c.FromEntry
+		if c.GetFromStream() > 0 {
+			sanityEntry = c.GetFromStream()
 		} else {
 			sanityEntry = 0
 		}
@@ -641,9 +650,9 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 	}
 
 	// Sanity check end condition
-	if e.Number+1 >= c.Header.TotalEntries {
+	if e.Number+1 >= c.GetTotalEntries() {
 		log.Infof("SANITY CHECK finished! From entry [%d] to entry [%d]. Latest L2block[%d], Bookmark0[%d], Bookmark1[%d]",
-			c.FromEntry, c.Header.TotalEntries-1, sanityBlock-1, sanityBookmark0-1, sanityBookmark1-1)
+			c.GetFromStream(), c.GetTotalEntries()-1, sanityBlock-1, sanityBookmark0-1, sanityBookmark1-1)
 		return errors.New("sanity check finished")
 	}
 
@@ -671,7 +680,7 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 		batchNumber := binary.BigEndian.Uint64(e.Data[0:8])
 		if batchNumber < dumpBatchNumber {
 			return nil
-		} else if (batchNumber > dumpBatchNumber) || (e.Number+1 >= c.Header.TotalEntries) {
+		} else if (batchNumber > dumpBatchNumber) || (e.Number+1 >= c.GetTotalEntries()) {
 			log.Infof("DUMP BATCH finished! First entry[%d], last entry[%d], first block[%d], last block[%d], total tx[%d]",
 				dumpEntryFirst, dumpEntryLast, dumpBlockFirst, dumpBlockLast, dumpTotalTx)
 
@@ -744,9 +753,10 @@ func runRelay(ctx *cli.Context) error {
 	if server == "" || file == "" || port <= 0 {
 		return errors.New("bad/missing parameters")
 	}
+	writeTout := ctx.Uint64("writetout")
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(server, uint16(port), 1, 137, StSequencer, file, nil) // nolint:gomnd
+	r, err := datastreamer.NewRelay(server, uint16(port), 1, 137, StSequencer, file, time.Duration(writeTout)*time.Millisecond, nil) // nolint:gomnd
 	if err != nil {
 		return err
 	}
