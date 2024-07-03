@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
@@ -27,6 +26,11 @@ const (
 
 	BookmarkL2Block byte = 0 // BookmarkL2Block bookmark type
 	BookmarkBatch   byte = 1 // BookmarkBatch bookmark type
+
+	streamerSystemID = 137
+	streamerVersion  = 1
+
+	noneType = "none"
 )
 
 var (
@@ -68,7 +72,7 @@ func main() {
 				&cli.Uint64Flag{
 					Name:        "port",
 					Usage:       "exposed port for clients to connect",
-					Value:       6900, // nolint:gomnd
+					Value:       6900, //nolint:mnd
 					DefaultText: "6900",
 				},
 				&cli.StringFlag{
@@ -86,25 +90,25 @@ func main() {
 				&cli.Uint64Flag{
 					Name:        "sleep",
 					Usage:       "initial sleep and sleep between atomic operations in ms",
-					Value:       0, // nolint:gomnd
+					Value:       0,
 					DefaultText: "0",
 				},
 				&cli.Uint64Flag{
 					Name:        "opers",
 					Usage:       "number of atomic operations (server will terminate after them)",
-					Value:       1000000, // nolint:gomnd
+					Value:       1000000, //nolint:mnd
 					DefaultText: "1000000",
 				},
 				&cli.Uint64Flag{
 					Name:        "writetimeout",
 					Usage:       "timeout for write operations on client connections in ms (0=no timeout)",
-					Value:       3000, // nolint:gomnd
+					Value:       3000, //nolint:mnd
 					DefaultText: "3000",
 				},
 				&cli.Uint64Flag{
 					Name:        "inactivitytimeout",
 					Usage:       "timeout to kill an inactive client connection in seconds (0=no timeout)",
-					Value:       120, // nolint:gomnd
+					Value:       120, //nolint:mnd
 					DefaultText: "120",
 				},
 			},
@@ -130,7 +134,7 @@ func main() {
 				&cli.StringFlag{
 					Name:  "frombookmark",
 					Usage: "bookmark to start the sync/streaming from (0..N) (has preference over --from parameter)",
-					Value: "none",
+					Value: noneType,
 				},
 				&cli.BoolFlag{
 					Name:  "header",
@@ -140,12 +144,12 @@ func main() {
 				&cli.StringFlag{
 					Name:  "entry",
 					Usage: "entry number to query data (0..N)",
-					Value: "none",
+					Value: noneType,
 				},
 				&cli.StringFlag{
 					Name:  "bookmark",
 					Usage: "entry bookmark to query entry data pointed by it (0..N)",
-					Value: "none",
+					Value: noneType,
 				},
 				&cli.IntFlag{
 					Name:  "bookmarktype",
@@ -160,7 +164,7 @@ func main() {
 				&cli.StringFlag{
 					Name:  "dumpbatch",
 					Usage: "batch number to dump data (0..N)",
-					Value: "none",
+					Value: noneType,
 				},
 				&cli.StringFlag{
 					Name:        "log",
@@ -185,7 +189,7 @@ func main() {
 				&cli.Uint64Flag{
 					Name:        "port",
 					Usage:       "exposed port for clients to connect",
-					Value:       7900, // nolint:gomnd
+					Value:       7900, //nolint:mnd
 					DefaultText: "7900",
 				},
 				&cli.StringFlag{
@@ -203,13 +207,13 @@ func main() {
 				&cli.Uint64Flag{
 					Name:        "writetimeout",
 					Usage:       "timeout for write operations on client connections in ms (0=no timeout)",
-					Value:       3000, // nolint:gomnd
+					Value:       3000, //nolint:mnd
 					DefaultText: "3000",
 				},
 				&cli.Uint64Flag{
 					Name:        "inactivitytimeout",
 					Usage:       "timeout to kill an inactive client connection in seconds (0=no timeout)",
-					Value:       120, // nolint:gomnd
+					Value:       120, //nolint:mnd
 					DefaultText: "120",
 				},
 			},
@@ -249,7 +253,9 @@ func runServer(ctx *cli.Context) error {
 	}
 
 	// Create stream server
-	s, err := datastreamer.NewServer(uint16(port), 1, 137, StSequencer, file, time.Duration(writeTimeout)*time.Millisecond, time.Duration(inactivityTimeout)*time.Second, 5*time.Second, nil) // nolint:gomnd
+	s, err := datastreamer.NewServer(uint16(port), streamerVersion, streamerSystemID, StSequencer, file,
+		time.Duration(writeTimeout)*time.Millisecond, time.Duration(inactivityTimeout)*time.Second,
+		5*time.Second, nil) //nolint:mnd
 	if err != nil {
 		return err
 	}
@@ -267,12 +273,12 @@ func runServer(ctx *cli.Context) error {
 	end := make(chan uint8)
 
 	go func(chan uint8) {
-		var testRollback bool = false
-		var latestRollback uint64 = 0
+		var (
+			testRollback   bool
+			latestRollback uint64
+		)
 
-		rand.Seed(time.Now().UnixNano())
-
-		init := s.GetHeader().TotalEntries / 5 // nolint:gomnd
+		init := s.GetHeader().TotalEntries / 5 //nolint:mnd
 
 		// Atomic Operations loop
 		for n := uint64(0); n < numOpersLoop; n++ {
@@ -302,7 +308,7 @@ func runServer(ctx *cli.Context) error {
 				return
 			}
 			// 4.Tx
-			numTx := 1 //rand.Intn(20) + 1
+			numTx := 1 // rand.Intn(20) + 1
 			for i := 1; i <= numTx; i++ {
 				_, err = s.AddStreamEntry(EtL2Tx, fakeDataTx())
 				if err != nil {
@@ -348,41 +354,70 @@ func runServer(ctx *cli.Context) error {
 }
 
 func fakeBookmark(bookType byte, value uint64) []byte {
-	bookmark := []byte{bookType} // nolint:gomnd
+	bookmark := []byte{bookType}
 	bookmark = binary.BigEndian.AppendUint64(bookmark, value)
 	return bookmark
 }
 
 func fakeDataBlockStart(blockNum uint64) []byte {
 	dataBlockStart := make([]byte, 0)
-	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, 101) // nolint:gomnd
+	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, 101) //nolint:mnd
 	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, blockNum)
 	dataBlockStart = binary.BigEndian.AppendUint64(dataBlockStart, uint64(time.Now().Unix()))
-	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 10)   // nolint:gomnd
-	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 1000) // nolint:gomnd
-	dataBlockStart = append(dataBlockStart, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
-	dataBlockStart = append(dataBlockStart, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
-	dataBlockStart = append(dataBlockStart, []byte{20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24, 20, 21, 22, 23, 24}...)
-	dataBlockStart = binary.BigEndian.AppendUint16(dataBlockStart, 5)   // nolint:gomnd
-	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 137) // nolint:gomnd
+	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 10)   //nolint:mnd
+	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 1000) //nolint:mnd
+	dataBlockStart = append(dataBlockStart,
+		[]byte{
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+		}...)
+	dataBlockStart = append(dataBlockStart,
+		[]byte{10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+		}...)
+	dataBlockStart = append(dataBlockStart,
+		[]byte{
+			20, 21, 22, 23, 24, 20, 21, 22, 23, 24,
+			20, 21, 22, 23, 24, 20, 21, 22, 23, 24,
+		}...)
+	dataBlockStart = binary.BigEndian.AppendUint16(dataBlockStart, 5)   //nolint:mnd
+	dataBlockStart = binary.BigEndian.AppendUint32(dataBlockStart, 137) //nolint:mnd
 	return dataBlockStart
 }
 
 func fakeDataTx() []byte {
-	dataTx := make([]byte, 0)    // nolint:gomnd
-	dataTx = append(dataTx, 128) // nolint:gomnd
-	dataTx = append(dataTx, 1)   // nolint:gomnd
-	dataTx = append(dataTx, []byte{10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17, 10, 11, 12, 13, 14, 15, 16, 17}...)
-	dataTx = binary.BigEndian.AppendUint32(dataTx, 5) // nolint:gomnd
-	dataTx = append(dataTx, []byte{1, 2, 3, 4, 5}...) // nolint:gomnd
+	dataTx := make([]byte, 0)
+	dataTx = append(dataTx, 128, 1) //nolint:mnd
+	dataTx = append(dataTx,
+		[]byte{
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17,
+			10, 11, 12, 13, 14, 15, 16, 17}...)
+	dataTx = binary.BigEndian.AppendUint32(dataTx, 5) //nolint:mnd
+	dataTx = append(dataTx, []byte{1, 2, 3, 4, 5}...)
 	return dataTx
 }
 
 func fakeDataBlockEnd(blockNum uint64) []byte {
 	dataBlockEnd := make([]byte, 0)
 	dataBlockEnd = binary.BigEndian.AppendUint64(dataBlockEnd, blockNum)
-	dataBlockEnd = append(dataBlockEnd, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}...)
-	dataBlockEnd = append(dataBlockEnd, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}...)
+	dataBlockEnd = append(dataBlockEnd, []byte{
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+	}...)
+	dataBlockEnd = append(dataBlockEnd, []byte{
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
+		1, 2, 3, 4, 5, 6, 7, 8,
+		9, 10, 11, 12, 13, 14, 15, 16,
+	}...)
 	return dataBlockEnd
 }
 
@@ -422,7 +457,7 @@ func runClient(ctx *cli.Context) error {
 
 	// Set process entry callback function
 	if !sanityCheck {
-		if paramDumpBatch != "none" {
+		if paramDumpBatch != noneType {
 			if from == "latest" {
 				from = "0"
 			}
@@ -459,7 +494,7 @@ func runClient(ctx *cli.Context) error {
 	}
 
 	// Query entry option
-	if queryEntry != "none" {
+	if queryEntry != noneType {
 		qEntry, err := strconv.Atoi(queryEntry)
 		if err != nil {
 			return err
@@ -468,23 +503,25 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
-			log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]", qEntry, entry.Number, entry.Length, entry.Type, entry.Data)
+			log.Infof("QUERY ENTRY %d: Entry[%d] Length[%d] Type[%d] Data[%v]",
+				qEntry, entry.Number, entry.Length, entry.Type, entry.Data)
 		}
 		return nil
 	}
 
 	// Query bookmark option
-	if queryBookmark != "none" {
+	if queryBookmark != noneType {
 		qBookmark, err := strconv.Atoi(queryBookmark)
 		if err != nil {
 			return err
 		}
-		qBook := []byte{bookType} // nolint:gomnd
+		qBook := []byte{bookType}
 		entry, err := c.ExecCommandGetBookmark(binary.BigEndian.AppendUint64(qBook, uint64(qBookmark)))
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
-			log.Infof("QUERY BOOKMARK (%d)%v: Entry[%d] Length[%d] Type[%d] Data[%v]", bookType, qBook, entry.Number, entry.Length, entry.Type, entry.Data)
+			log.Infof("QUERY BOOKMARK (%d)%v: Entry[%d] Length[%d] Type[%d] Data[%v]",
+				bookType, qBook, entry.Number, entry.Length, entry.Type, entry.Data)
 		}
 		return nil
 	}
@@ -495,13 +532,13 @@ func runClient(ctx *cli.Context) error {
 		return err
 	}
 
-	if fromBookmark != "none" {
+	if fromBookmark != noneType {
 		// Command StartBookmark: Sync and start streaming receive from bookmark
 		fromBookNum, err := strconv.Atoi(fromBookmark)
 		if err != nil {
 			return err
 		}
-		bookmark := []byte{bookType} // nolint:gomnd
+		bookmark := []byte{bookType}
 		err = c.ExecCommandStartBookmark(binary.BigEndian.AppendUint64(bookmark, uint64(fromBookNum)))
 		if err != nil {
 			return err
@@ -509,7 +546,7 @@ func runClient(ctx *cli.Context) error {
 	} else {
 		// Command start: Sync and start streaming receive from entry number
 		var fromEntry uint64
-		if from == "latest" { // nolint:gomnd
+		if from == "latest" {
 			fromEntry = header.TotalEntries
 		} else {
 			fromNum, err := strconv.Atoi(from)
@@ -541,12 +578,15 @@ func runClient(ctx *cli.Context) error {
 
 // printEntryNum prints basic data of the entry
 func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
-	log.Infof("PROCESS entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+	log.Infof("PROCESS entry(%s): %d | %d | %d | %d", c.ID, e.Number, e.Length, e.Type, len(e.Data))
 	return nil
 }
 
 // checkEntryBlockSanity checks entry, bookmark, and block sequence consistency
-func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
+func checkEntryBlockSanity(
+	e *datastreamer.FileEntry,
+	c *datastreamer.StreamClient,
+	s *datastreamer.StreamServer) error {
 	// Sanity check initialization
 	if !initSanityEntry {
 		initSanityEntry = true
@@ -586,9 +626,11 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 		if sanityBlock > 0 {
 			if blockNum != sanityBlock {
 				if blockNum < sanityBlock {
-					log.Infof("(X) SANITY CHECK failed (%d): REPEATED blocks? Received[%d] | Block expected[%d]", e.Number, blockNum, sanityBlock)
+					log.Infof("(X) SANITY CHECK failed (%d): REPEATED blocks? Received[%d] | Block expected[%d]",
+						e.Number, blockNum, sanityBlock)
 				} else {
-					log.Infof("(X) SANITY CHECK failed (%d): GAP blocks? Received[%d] | Block expected[%d]", e.Number, blockNum, sanityBlock)
+					log.Infof("(X) SANITY CHECK failed (%d): GAP blocks? Received[%d] | Block expected[%d]",
+						e.Number, blockNum, sanityBlock)
 				}
 				sanityBlock = blockNum
 			}
@@ -617,16 +659,19 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 			if sanityBookmark0 > 0 {
 				if bookmarkNum != sanityBookmark0 {
 					if bookmarkNum < sanityBookmark0 {
-						log.Infof("(X) SANITY CHECK failed (%d): REPEATED L2block bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark0)
+						log.Infof("(X) SANITY CHECK failed (%d): REPEATED L2block bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmark0)
 					} else {
-						log.Infof("(X) SANITY CHECK failed (%d): GAP L2block bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark0)
+						log.Infof("(X) SANITY CHECK failed (%d): GAP L2block bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmark0)
 					}
 					sanityBookmark0 = bookmarkNum
 				}
 			} else {
 				if bookmarkNum != 0 {
 					if initSanityBookmark {
-						log.Infof("(X) SANITY CHECK failed (%d): L2block Bookmark received[%d] | Bookmark expected[0]", e.Number, bookmarkNum)
+						log.Infof("(X) SANITY CHECK failed (%d): L2block Bookmark received[%d] | Bookmark expected[0]",
+							e.Number, bookmarkNum)
 						sanityBookmark0 = 0
 					} else {
 						log.Infof("SANITY CHECK note (%d): First L2block Bookmark received[%d]", e.Number, bookmarkNum)
@@ -641,16 +686,19 @@ func checkEntryBlockSanity(e *datastreamer.FileEntry, c *datastreamer.StreamClie
 			if sanityBookmark1 > 0 {
 				if bookmarkNum != sanityBookmark1 {
 					if bookmarkNum < sanityBookmark1 {
-						log.Infof("(X) SANITY CHECK failed (%d): REPEATED Batch bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark1)
+						log.Infof("(X) SANITY CHECK failed (%d): REPEATED Batch bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmark1)
 					} else {
-						log.Infof("(X) SANITY CHECK failed (%d): GAP Batch bookmarks? Received[%d] | Bookmark expected[%d]", e.Number, bookmarkNum, sanityBookmark1)
+						log.Infof("(X) SANITY CHECK failed (%d): GAP Batch bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmark1)
 					}
 					sanityBookmark1 = bookmarkNum
 				}
 			} else {
 				if bookmarkNum != 0 {
 					if initSanityBookmark {
-						log.Infof("(X) SANITY CHECK failed (%d): Batch Bookmark received[%d] | Bookmark expected[0]", e.Number, bookmarkNum)
+						log.Infof("(X) SANITY CHECK failed (%d): Batch Bookmark received[%d] | Bookmark expected[0]",
+							e.Number, bookmarkNum)
 						sanityBookmark1 = 0
 					} else {
 						log.Infof("SANITY CHECK note (%d): First Batch Bookmark received[%d]", e.Number, bookmarkNum)
@@ -692,9 +740,10 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 	// L2 block start
 	if e.Type == EtL2BlockStart {
 		batchNumber := binary.BigEndian.Uint64(e.Data[0:8])
-		if batchNumber < dumpBatchNumber {
+		switch {
+		case batchNumber < dumpBatchNumber:
 			return nil
-		} else if (batchNumber > dumpBatchNumber) || (e.Number+1 >= c.GetTotalEntries()) {
+		case (batchNumber > dumpBatchNumber) || (e.Number+1 >= c.GetTotalEntries()):
 			log.Infof("DUMP BATCH finished! First entry[%d], last entry[%d], first block[%d], last block[%d], total tx[%d]",
 				dumpEntryFirst, dumpEntryLast, dumpBlockFirst, dumpBlockLast, dumpTotalTx)
 
@@ -723,7 +772,8 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 			}
 
 			return errors.New("dump batch finished")
-		} else if batchNumber == dumpBatchNumber {
+
+		case batchNumber == dumpBatchNumber:
 			initDumpBatch = true
 
 			blockNum := binary.BigEndian.Uint64(e.Data[8:16])
@@ -743,7 +793,7 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 		}
 		dumpEntryLast = e.Number
 
-		dumpBatchData = dumpBatchData + fmt.Sprintf("%02x%08x%08x%016x%x", 2, e.Length, e.Type, e.Number, e.Data) // nolint:gomnd
+		dumpBatchData += fmt.Sprintf("%02x%08x%08x%016x%x", 2, e.Length, e.Type, e.Number, e.Data) //nolint:mnd
 	}
 	return nil
 }
@@ -771,7 +821,9 @@ func runRelay(ctx *cli.Context) error {
 	inactivityTimeout := ctx.Uint64("inactivitytimeout")
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(server, uint16(port), 1, 137, StSequencer, file, time.Duration(writeTimeout)*time.Millisecond, time.Duration(inactivityTimeout)*time.Second, 5*time.Second, nil) // nolint:gomnd
+	r, err := datastreamer.NewRelay(server, uint16(port), streamerVersion, streamerSystemID, StSequencer, file,
+		time.Duration(writeTimeout)*time.Millisecond, time.Duration(inactivityTimeout)*time.Second,
+		5*time.Second, nil) //nolint:mnd
 	if err != nil {
 		return err
 	}
