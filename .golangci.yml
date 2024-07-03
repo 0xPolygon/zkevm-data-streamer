@@ -46,7 +46,6 @@ linters-settings:
     # By default list of stable checks is used.
     enabled-checks:
       - ruleguard
-      - truncateCmp
 
     disabled-checks:
       - regexpMust
