@@ -111,19 +111,21 @@ var (
 
 // StreamServer type to manage a data stream server
 type StreamServer struct {
-	port                    uint16        // Server stream port
-	fileName                string        // Stream file name
-	writeTimeout            time.Duration // Timeout for write operations on client connection
-	inactivityTimeout       time.Duration // Inactivity timeout to kill a client connection
-	inactivityCheckInterval time.Duration // Time interval to check for client connections that have reached the inactivity timeout and kill them
-	started                 bool          // Flag server started
+	port              uint16        // Server stream port
+	fileName          string        // Stream file name
+	writeTimeout      time.Duration // Timeout for write operations on client connection
+	inactivityTimeout time.Duration // Inactivity timeout to kill a client connection
+	// Time interval to check for client connections that have reached
+	// the inactivity timeout and kill them
+	inactivityCheckInterval time.Duration
+	started                 bool // Flag server started
 
 	version      uint8
 	systemID     uint64
 	streamType   StreamType
 	ln           net.Listener
 	clients      map[string]*client
-	mutexClients sync.Mutex // Mutex for write access to clients map
+	mutexClients sync.RWMutex // Mutex for write access to clients map
 
 	nextEntry uint64 // Next sequential entry number
 	initEntry uint64 // Only used by the relay (initial next entry in the master server)
@@ -262,9 +264,9 @@ func (s *StreamServer) checkClientInactivity() {
 		}
 		s.mutexClients.Unlock()
 
-		for clientId := range clientsToKill {
-			log.Infof("killing inactive client %s", clientId)
-			s.killClient(clientId)
+		for clientID := range clientsToKill {
+			log.Infof("killing inactive client %s", clientID)
+			s.killClient(clientID)
 		}
 	}
 }
@@ -688,7 +690,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		broadcastOp := <-s.stream
 		start := time.Now().UnixMilli()
 		var killedClientMap = map[string]struct{}{}
-		s.mutexClients.Lock()
+		s.mutexClients.RLock()
 		// For each connected and started client
 		log.Infof("sending %d datastream entries to %d clients", len(broadcastOp.entries), len(s.clients))
 		for id, cli := range s.clients {
@@ -718,7 +720,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 			}
 		}
-		s.mutexClients.Unlock()
+		s.mutexClients.RUnlock()
 
 		for k := range killedClientMap {
 			s.killClient(k)
@@ -1114,14 +1116,14 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 }
 
 func (s *StreamServer) getSafeClient(clientID string) *client {
-	s.mutexClients.Lock()
-	defer s.mutexClients.Unlock()
+	s.mutexClients.RLock()
+	defer s.mutexClients.RUnlock()
 	return s.clients[clientID]
 }
 
 func (s *StreamServer) getSafeClientsLen() int {
-	s.mutexClients.Lock()
-	defer s.mutexClients.Unlock()
+	s.mutexClients.RLock()
+	defer s.mutexClients.RUnlock()
 	return len(s.clients)
 }
 
@@ -1136,7 +1138,7 @@ func (s *StreamServer) BookmarkPrintDump() {
 // readFullUint64 reads from a connection a complete uint64
 func readFullUint64(client *client) (uint64, error) {
 	// Read 8 bytes (uint64 value)
-	buffer, err := readFullBytes(8, client) // nolint:mnd
+	buffer, err := readFullBytes(8, client) //nolint:mnd
 	if err != nil {
 		return 0, err
 	}
@@ -1150,7 +1152,7 @@ func readFullUint64(client *client) (uint64, error) {
 // readFullUint32 reads from a connection a complete uint32
 func readFullUint32(client *client) (uint32, error) {
 	// Read 4 bytes (uint32 value)
-	buffer, err := readFullBytes(4, client) // nolint:mnd
+	buffer, err := readFullBytes(4, client) //nolint:mnd
 	if err != nil {
 		return 0, err
 	}

@@ -94,7 +94,7 @@ func defaultConfig() (*config, error) {
 		Port:              7900, //nolint:mnd
 		File:              "datarelay.bin",
 		WriteTimeout:      3 * time.Second,                  //nolint:mnd
-		InactivityTimeout: time.Duration(120 * time.Second), // nolint:mnd
+		InactivityTimeout: time.Duration(120 * time.Second), //nolint:mnd
 		Log:               "info",
 	}, nil
 }
