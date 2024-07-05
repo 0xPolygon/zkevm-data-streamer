@@ -30,7 +30,9 @@ const (
 	streamerSystemID = 137
 	streamerVersion  = 1
 
-	noneType = "none"
+	noneType        = "none"
+	streamServerURL = "127.0.0.1:6900"
+	logLevelInfo    = "log level (debug|info|warn|error)"
 )
 
 var (
@@ -83,7 +85,7 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:        "log",
-					Usage:       "log level (debug|info|warn|error)",
+					Usage:       logLevelInfo,
 					Value:       "info",
 					DefaultText: "info",
 				},
@@ -122,8 +124,8 @@ func main() {
 				&cli.StringFlag{
 					Name:        "server",
 					Usage:       "datastream server address to connect (IP:port)",
-					Value:       "127.0.0.1:6900",
-					DefaultText: "127.0.0.1:6900",
+					Value:       streamServerURL,
+					DefaultText: streamServerURL,
 				},
 				&cli.StringFlag{
 					Name:        "from",
@@ -168,7 +170,7 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:        "log",
-					Usage:       "log level (debug|info|warn|error)",
+					Usage:       logLevelInfo,
 					Value:       "info",
 					DefaultText: "info",
 				},
@@ -183,8 +185,8 @@ func main() {
 				&cli.StringFlag{
 					Name:        "server",
 					Usage:       "datastream server address to connect (IP:port)",
-					Value:       "127.0.0.1:6900",
-					DefaultText: "127.0.0.1:6900",
+					Value:       streamServerURL,
+					DefaultText: streamServerURL,
 				},
 				&cli.Uint64Flag{
 					Name:        "port",
@@ -200,7 +202,7 @@ func main() {
 				},
 				&cli.StringFlag{
 					Name:        "log",
-					Usage:       "log level (debug|info|warn|error)",
+					Usage:       logLevelInfo,
 					Value:       "info",
 					DefaultText: "info",
 				},
