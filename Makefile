@@ -13,7 +13,6 @@ check-docker:
 	@which docker > /dev/null || (echo "Error: docker is not installed" && exit 1)
 
 # Targets that require the checks
-run-server: check-go
 build-dsapp: check-go
 build-dsrelay: check-go
 build-docker: check-docker
