@@ -45,7 +45,7 @@ build-docker-nc: ## Builds a docker image with datastream relay binary but witho
 
 .PHONY: test
 test:
-	go test -count=1 -short -race -p 1 -timeout 60s ./...
+	go test -coverprofile coverage.out -count=1 -short -race -p 1 -timeout 60s ./...
 
 ## Help display.
 ## Pulls comments from beside commands and prints a nicely formatted
