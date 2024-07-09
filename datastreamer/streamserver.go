@@ -435,7 +435,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!AtomicOp COMMIT (%d)", s.atomicOp.startEntry)
+	log.Infof("commit datastream atomic operation, startEntry: %d", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
 		return ErrCommitNotAllowed
@@ -470,7 +470,7 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Debugf("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!AtomicOp ROLLBACK (%d)", s.atomicOp.startEntry)
+	log.Infof("rollback datastream atomic operation, startEntry: %d", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
 		return ErrRollbackNotAllowed
@@ -684,7 +684,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		var killedClientMap = map[string]struct{}{}
 		s.mutexClients.Lock()
 		// For each connected and started client
-		log.Infof("Sending %d datastream entries to %d clients", len(broadcastOp.entries), len(s.clients))
+		log.Infof("sending %d datastream entries to %d clients", len(broadcastOp.entries), len(s.clients))
 		for id, cli := range s.clients {
 			log.Debugf("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
