@@ -3,6 +3,7 @@ package datastreamer
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -108,10 +109,12 @@ var (
 
 // StreamServer type to manage a data stream server
 type StreamServer struct {
-	port         uint16        // Server stream port
-	fileName     string        // Stream file name
-	writeTimeout time.Duration // Timeout for write operations on client connection
-	started      bool          // Flag server started
+	port                    uint16        // Server stream port
+	fileName                string        // Stream file name
+	writeTimeout            time.Duration // Timeout for write operations on client connection
+	inactivityTimeout       time.Duration // Inactivity timeout to kill a client connection
+	inactivityCheckInterval time.Duration // Time interval to check for client connections that have reached the inactivity timeout and kill them
+	started                 bool          // Flag server started
 
 	version      uint8
 	systemID     uint64
@@ -138,10 +141,15 @@ type streamAO struct {
 
 // client type for the server to manage clients
 type client struct {
-	conn      net.Conn
-	status    ClientStatus
-	fromEntry uint64
-	clientId  string
+	conn         net.Conn
+	status       ClientStatus
+	fromEntry    uint64
+	clientId     string
+	lastActivity time.Time
+}
+
+func (c *client) updateActivity() {
+	c.lastActivity = time.Now()
 }
 
 // ResultEntry type for a result entry
@@ -153,13 +161,15 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, cfg *log.Config) (*StreamServer, error) {
+func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, inactivityTimeout time.Duration, inactivityCheckInterval time.Duration, cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
-		port:         port,
-		fileName:     fileName,
-		writeTimeout: writeTimeout,
-		started:      false,
+		port:                    port,
+		fileName:                fileName,
+		writeTimeout:            writeTimeout,
+		inactivityTimeout:       inactivityTimeout,
+		inactivityCheckInterval: inactivityCheckInterval,
+		started:                 false,
 
 		version:    version,
 		systemID:   systemID,
@@ -221,6 +231,9 @@ func (s *StreamServer) Start() error {
 	// Goroutine to broadcast committed atomic operations
 	go s.broadcastAtomicOp()
 
+	// Goroutine to check inactivity timeout in client connections
+	go s.checkClientInactivity()
+
 	// Goroutine to wait for clients connections
 	log.Infof("Listening on port: %d", s.port)
 	go s.waitConnections()
@@ -229,6 +242,27 @@ func (s *StreamServer) Start() error {
 	s.started = true
 
 	return nil
+}
+
+// checkClientInactivity kills all the clients that reach write inactivity timeout
+func (s *StreamServer) checkClientInactivity() {
+	for {
+		time.Sleep(s.inactivityCheckInterval)
+
+		var clientsToKill = map[string]struct{}{}
+		s.mutexClients.Lock()
+		for _, client := range s.clients {
+			if client.lastActivity.Add(s.inactivityTimeout).Before(time.Now()) {
+				clientsToKill[client.clientId] = struct{}{}
+			}
+		}
+		s.mutexClients.Unlock()
+
+		for clientId := range clientsToKill {
+			log.Infof("killing inactive client %s", clientId)
+			s.killClient(clientId)
+		}
+	}
 }
 
 // waitConnections waits for a new client connection and creates a goroutine to manages it
@@ -264,23 +298,25 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 	log.Debugf("New connection: %s", clientId)
 
 	s.mutexClients.Lock()
-	s.clients[clientId] = &client{
-		conn:      conn,
-		status:    csStopped,
-		fromEntry: 0,
-		clientId:  clientId,
+	client := &client{
+		conn:         conn,
+		status:       csStopped,
+		fromEntry:    0,
+		clientId:     clientId,
+		lastActivity: time.Now(),
 	}
+	s.clients[clientId] = client
 	s.mutexClients.Unlock()
 
 	for {
 		// Read command
-		command, err := readFullUint64(conn)
+		command, err := readFullUint64(client)
 		if err != nil {
 			s.killClient(clientId)
 			return
 		}
 		// Read stream type
-		stUint64, err := readFullUint64(conn)
+		stUint64, err := readFullUint64(client)
 		if err != nil {
 			s.killClient(clientId)
 			return
@@ -399,7 +435,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!AtomicOp COMMIT (%d)", s.atomicOp.startEntry)
+	log.Infof("commit datastream atomic operation, startEntry: %d", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
 		return ErrCommitNotAllowed
@@ -421,9 +457,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	atomic.entries = make([]FileEntry, len(s.atomicOp.entries))
 	copy(atomic.entries, s.atomicOp.entries)
 
-	log.Infof("[ds-debug] CommitAtomicOp before send to channel")
 	s.stream <- atomic
-	log.Infof("[ds-debug] CommitAtomicOp after send to channel")
 
 	// No atomic operation in progress
 	s.clearAtomicOp()
@@ -436,7 +470,7 @@ func (s *StreamServer) RollbackAtomicOp() error {
 	start := time.Now().UnixNano()
 	defer log.Debugf("RollbackAtomicOp process time: %vns", time.Now().UnixNano()-start)
 
-	log.Infof("!AtomicOp ROLLBACK (%d)", s.atomicOp.startEntry)
+	log.Infof("rollback datastream atomic operation, startEntry: %d", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
 		log.Errorf("Rollback not allowed, AtomicOp is not in the started state")
 		return ErrRollbackNotAllowed
@@ -648,31 +682,24 @@ func (s *StreamServer) broadcastAtomicOp() {
 		broadcastOp := <-s.stream
 		start := time.Now().UnixMilli()
 		var killedClientMap = map[string]struct{}{}
-		log.Infof("[ds-debug] broadcastAtomicOp before mutexClients lock")
 		s.mutexClients.Lock()
 		// For each connected and started client
-		log.Infof("Clients: %d, AO-entries: %d", len(s.clients), len(broadcastOp.entries))
+		log.Infof("sending %d datastream entries to %d clients", len(broadcastOp.entries), len(s.clients))
 		for id, cli := range s.clients {
-			log.Infof("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
+			log.Debugf("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
 			if cli.status != csSynced {
 				continue
 			}
 
 			// Send entries
-			for index, entry := range broadcastOp.entries {
+			for _, entry := range broadcastOp.entries {
 				if entry.Number >= cli.fromEntry {
 					log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
 					binaryEntry := encodeFileEntryToBinary(entry)
 
 					// Send the file data entry
 					if cli.conn != nil {
-						if index == 0 {
-							log.Infof("[ds-debug] before conn Write %s", id)
-						}
-						_, err = TimeoutWrite(cli.conn, binaryEntry, s.writeTimeout)
-						if index == 0 {
-							log.Infof("[ds-debug] after conn Write %s", id)
-						}
+						_, err = TimeoutWrite(cli, binaryEntry, s.writeTimeout)
 					} else {
 						err = ErrNilConnection
 					}
@@ -686,7 +713,6 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 		}
 		s.mutexClients.Unlock()
-		log.Infof("[ds-debug] broadcastAtomicOp after mutexClients unlock")
 
 		for k := range killedClientMap {
 			s.killClient(k)
@@ -793,7 +819,7 @@ func (s *StreamServer) processCommand(command Command, client *client) error {
 // processCmdStart processes the TCP Start command from the clients
 func (s *StreamServer) processCmdStart(client *client) error {
 	// Read from entry number parameter
-	fromEntry, err := readFullUint64(client.conn)
+	fromEntry, err := readFullUint64(client)
 	if err != nil {
 		return err
 	}
@@ -827,7 +853,7 @@ func (s *StreamServer) processCmdStart(client *client) error {
 // processCmdStartBookmark processes the TCP Start Bookmark command from the clients
 func (s *StreamServer) processCmdStartBookmark(client *client) error {
 	// Read bookmark length parameter
-	length, err := readFullUint32(client.conn)
+	length, err := readFullUint32(client)
 	if err != nil {
 		return err
 	}
@@ -839,7 +865,7 @@ func (s *StreamServer) processCmdStartBookmark(client *client) error {
 	}
 
 	// Read bookmark parameter
-	bookmark, err := readFullBytes(length, client.conn)
+	bookmark, err := readFullBytes(length, client)
 	if err != nil {
 		return err
 	}
@@ -898,7 +924,7 @@ func (s *StreamServer) processCmdHeader(client *client) error {
 
 	// Send header entry to the client
 	if client.conn != nil {
-		_, err = TimeoutWrite(client.conn, binaryHeader, s.writeTimeout)
+		_, err = TimeoutWrite(client, binaryHeader, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -912,7 +938,7 @@ func (s *StreamServer) processCmdHeader(client *client) error {
 // processCmdEntry processes the TCP Entry command from the clients
 func (s *StreamServer) processCmdEntry(client *client) error {
 	// Read from entry number parameter
-	entryNumber, err := readFullUint64(client.conn)
+	entryNumber, err := readFullUint64(client)
 	if err != nil {
 		return err
 	}
@@ -939,7 +965,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
+		_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -954,7 +980,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 // processCmdBookmark processes the TCP Bookmark command from the clients
 func (s *StreamServer) processCmdBookmark(client *client) error {
 	// Read bookmark length parameter
-	length, err := readFullUint32(client.conn)
+	length, err := readFullUint32(client)
 	if err != nil {
 		return err
 	}
@@ -966,7 +992,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 	}
 
 	// Read bookmark parameter
-	bookmark, err := readFullBytes(length, client.conn)
+	bookmark, err := readFullBytes(length, client)
 	if err != nil {
 		return err
 	}
@@ -993,7 +1019,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 
 	// Send entry to the client
 	if client.conn != nil {
-		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
+		_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1032,7 +1058,7 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
 		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientId)
 		if client.conn != nil {
-			_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
+			_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
 		} else {
 			err = ErrNilConnection
 		}
@@ -1069,7 +1095,7 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 	// Send the result entry to the client
 	var err error
 	if client.conn != nil {
-		_, err = TimeoutWrite(client.conn, binaryEntry, s.writeTimeout)
+		_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
 	} else {
 		err = ErrNilConnection
 	}
@@ -1103,16 +1129,10 @@ func (s *StreamServer) BookmarkPrintDump() {
 }
 
 // readFullUint64 reads from a connection a complete uint64
-func readFullUint64(conn net.Conn) (uint64, error) {
+func readFullUint64(client *client) (uint64, error) {
 	// Read 8 bytes (uint64 value)
-	buffer := make([]byte, 8) // nolint:gomnd
-	_, err := io.ReadFull(conn, buffer)
+	buffer, err := readFullBytes(8, client) // nolint:gomnd
 	if err != nil {
-		if err == io.EOF {
-			log.Debugf("Client %s close connection", conn.RemoteAddr().String())
-		} else {
-			log.Warnf("Error reading from client: %v", err)
-		}
 		return 0, err
 	}
 
@@ -1123,16 +1143,10 @@ func readFullUint64(conn net.Conn) (uint64, error) {
 }
 
 // readFullUint32 reads from a connection a complete uint32
-func readFullUint32(conn net.Conn) (uint32, error) {
+func readFullUint32(client *client) (uint32, error) {
 	// Read 4 bytes (uint32 value)
-	buffer := make([]byte, 4) // nolint:gomnd
-	_, err := io.ReadFull(conn, buffer)
+	buffer, err := readFullBytes(4, client) // nolint:gomnd
 	if err != nil {
-		if err == io.EOF {
-			log.Debugf("Client %s close connection", conn.RemoteAddr().String())
-		} else {
-			log.Warnf("Error reading from client: %v", err)
-		}
 		return 0, err
 	}
 
@@ -1143,21 +1157,26 @@ func readFullUint32(conn net.Conn) (uint32, error) {
 }
 
 // readFullBytes reads from a connection number length of bytes
-func readFullBytes(length uint32, conn net.Conn) ([]byte, error) {
-	var err error = nil
+func readFullBytes(length uint32, client *client) ([]byte, error) {
 	// Read number length of bytes
 	buffer := make([]byte, length)
-	if length > 0 {
-		_, err := io.ReadFull(conn, buffer)
-		if err != nil {
-			if err == io.EOF {
-				log.Debugf("Client %s close connection", conn.RemoteAddr().String())
-			} else {
-				log.Warnf("Error reading from client: %v", err)
-			}
-		}
+
+	if length == 0 {
+		return buffer, fmt.Errorf("read length must be greater than 0")
 	}
-	return buffer, err
+
+	_, err := io.ReadFull(client.conn, buffer)
+	if err != nil {
+		if err == io.EOF {
+			log.Debugf("Client %s close connection", client.conn.RemoteAddr().String())
+		} else {
+			log.Warnf("Error reading from client %s, error: %v", client.clientId, err)
+		}
+		return buffer, err
+	}
+
+	client.updateActivity()
+	return buffer, nil
 }
 
 // encodeResultEntryToBinary encodes from a result entry type to binary bytes slice
@@ -1207,16 +1226,19 @@ func (c Command) IsACommand() bool {
 }
 
 // TimeoutWrite sets a deadline time before write
-func TimeoutWrite(conn net.Conn, data []byte, timeout time.Duration) (int, error) {
-	err := conn.SetWriteDeadline(time.Now().Add(timeout))
+func TimeoutWrite(client *client, data []byte, timeout time.Duration) (int, error) {
+	err := client.conn.SetWriteDeadline(time.Now().Add(timeout))
 	if err != nil {
 		log.Warnf("Error setting write deadline: %v", err)
 	}
-	n, err := conn.Write(data)
+	n, err := client.conn.Write(data)
 	if err != nil {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
-			log.Infof("[ds-debug] Write deadline exceeded! %v", err)
+			log.Debugf("Write deadline exceeded for client %s, error: %v", client.clientId, err)
 		}
+	} else {
+		client.updateActivity()
 	}
+
 	return n, err
 }
