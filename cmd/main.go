@@ -208,7 +208,7 @@ func main() {
 				},
 				&cli.Uint64Flag{
 					Name:        "inactivitytout",
-					Usage:       "timeout to keep an inactive client connection alive in seconds (0=no timeout)",
+					Usage:       "timeout to kill an inactive client connection in seconds (0=no timeout)",
 					Value:       120, // nolint:gomnd
 					DefaultText: "120",
 				},
