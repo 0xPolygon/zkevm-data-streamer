@@ -63,11 +63,11 @@ func main() {
 			Usage: "log level (debug|info|warn|error)",
 		},
 		&cli.Uint64Flag{
-			Name:  "writetout",
+			Name:  "writetimeout",
 			Usage: "timeout for write operations on client connections in ms (0=no timeout)",
 		},
 		&cli.Uint64Flag{
-			Name:  "inactivitytout",
+			Name:  "inactivitytimeout",
 			Usage: "timeout to kill an inactive client connection in seconds (0=no timeout)",
 		},
 	}
@@ -173,14 +173,14 @@ func run(ctx *cli.Context) error {
 		cfg.Log = logLevel
 	}
 
-	writetout := ctx.Uint64("writetout")
-	if writetout != 0 {
-		cfg.WriteTimeout = time.Duration(writetout * uint64(time.Second))
+	writeTimeout := ctx.Uint64("writetimeout")
+	if writeTimeout != 0 {
+		cfg.WriteTimeout = time.Duration(writeTimeout * uint64(time.Second))
 	}
 
-	inactivitytout := ctx.Uint64("inactivitytout")
-	if inactivitytout != 0 {
-		cfg.InactivityTimeout = time.Duration(inactivitytout * uint64(time.Second))
+	inactivityTimeout := ctx.Uint64("inactivitytimeout")
+	if inactivityTimeout != 0 {
+		cfg.InactivityTimeout = time.Duration(inactivityTimeout * uint64(time.Second))
 	}
 
 	// Set log level

@@ -96,13 +96,13 @@ func main() {
 					DefaultText: "1000000",
 				},
 				&cli.Uint64Flag{
-					Name:        "writetout",
+					Name:        "writetimeout",
 					Usage:       "timeout for write operations on client connections in ms (0=no timeout)",
 					Value:       3000, // nolint:gomnd
 					DefaultText: "3000",
 				},
 				&cli.Uint64Flag{
-					Name:        "inactivitytout",
+					Name:        "inactivitytimeout",
 					Usage:       "timeout to kill an inactive client connection in seconds (0=no timeout)",
 					Value:       120, // nolint:gomnd
 					DefaultText: "120",
@@ -201,13 +201,13 @@ func main() {
 					DefaultText: "info",
 				},
 				&cli.Uint64Flag{
-					Name:        "writetout",
+					Name:        "writetimeout",
 					Usage:       "timeout for write operations on client connections in ms (0=no timeout)",
 					Value:       3000, // nolint:gomnd
 					DefaultText: "3000",
 				},
 				&cli.Uint64Flag{
-					Name:        "inactivitytout",
+					Name:        "inactivitytimeout",
 					Usage:       "timeout to kill an inactive client connection in seconds (0=no timeout)",
 					Value:       120, // nolint:gomnd
 					DefaultText: "120",
@@ -241,15 +241,15 @@ func runServer(ctx *cli.Context) error {
 	port := ctx.Uint64("port")
 	sleep := ctx.Uint64("sleep")
 	numOpersLoop := ctx.Uint64("opers")
-	writeTout := ctx.Uint64("writetout")
-	inactivityTout := ctx.Uint64("inactivitytout")
+	writeTimeout := ctx.Uint64("writetimeout")
+	inactivityTimeout := ctx.Uint64("inactivitytimeout")
 
 	if file == "" || port <= 0 {
 		return errors.New("bad/missing parameters")
 	}
 
 	// Create stream server
-	s, err := datastreamer.NewServer(uint16(port), 1, 137, StSequencer, file, time.Duration(writeTout)*time.Millisecond, time.Duration(inactivityTout)*time.Second, 5*time.Second, nil) // nolint:gomnd
+	s, err := datastreamer.NewServer(uint16(port), 1, 137, StSequencer, file, time.Duration(writeTimeout)*time.Millisecond, time.Duration(inactivityTimeout)*time.Second, 5*time.Second, nil) // nolint:gomnd
 	if err != nil {
 		return err
 	}
@@ -767,11 +767,11 @@ func runRelay(ctx *cli.Context) error {
 	if server == "" || file == "" || port <= 0 {
 		return errors.New("bad/missing parameters")
 	}
-	writeTout := ctx.Uint64("writetout")
-	inactivityTout := ctx.Uint64("inactivitytout")
+	writeTimeout := ctx.Uint64("writetimeout")
+	inactivityTimeout := ctx.Uint64("inactivitytimeout")
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(server, uint16(port), 1, 137, StSequencer, file, time.Duration(writeTout)*time.Millisecond, time.Duration(inactivityTout)*time.Second, 5*time.Second, nil) // nolint:gomnd
+	r, err := datastreamer.NewRelay(server, uint16(port), 1, 137, StSequencer, file, time.Duration(writeTimeout)*time.Millisecond, time.Duration(inactivityTimeout)*time.Second, 5*time.Second, nil) // nolint:gomnd
 	if err != nil {
 		return err
 	}
