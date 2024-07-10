@@ -178,7 +178,7 @@ func run(ctx *cli.Context) error {
 		log.Infof(">> Warning Deleting data file: %s", cfg.File)
 		deleteDataFile(cfg.File)
 		log.Infof(">> Data file deleted: %s succeeded!", cfg.File)
-		return nil
+		time.Sleep(1 * time.Second) // nolint:gomnd
 	}
 
 	// Create relay server
