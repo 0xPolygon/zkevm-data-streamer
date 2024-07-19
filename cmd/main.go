@@ -15,6 +15,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/urfave/cli/v2"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -541,7 +542,18 @@ func runClient(ctx *cli.Context) error {
 
 // printEntryNum prints basic data of the entry
 func printEntryNum(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s *datastreamer.StreamServer) error {
-	log.Infof("PROCESS entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+	if e.Type == 2 {
+		l2Block := &datastreamer.L2Block{}
+		err := proto.Unmarshal(e.Data, l2Block)
+		if err != nil {
+			log.Errorf("Error unmarshalling L2Block: %v", err)
+			return err
+		}
+
+		log.Infof("START L2 Block %d", l2Block.Number)
+	} else {
+		log.Infof("PROCESS entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+	}
 	return nil
 }
 
