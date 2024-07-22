@@ -41,6 +41,8 @@ const (
 	maxConnections    = 100 // Maximum number of connected clients
 	streamBuffer      = 256 // Buffers for the stream channel
 	maxBookmarkLength = 16  // Maximum number of bytes for a bookmark
+
+	timeout = 2 * time.Second
 )
 
 const (
@@ -109,19 +111,21 @@ var (
 
 // StreamServer type to manage a data stream server
 type StreamServer struct {
-	port                    uint16        // Server stream port
-	fileName                string        // Stream file name
-	writeTimeout            time.Duration // Timeout for write operations on client connection
-	inactivityTimeout       time.Duration // Inactivity timeout to kill a client connection
-	inactivityCheckInterval time.Duration // Time interval to check for client connections that have reached the inactivity timeout and kill them
-	started                 bool          // Flag server started
+	port              uint16        // Server stream port
+	fileName          string        // Stream file name
+	writeTimeout      time.Duration // Timeout for write operations on client connection
+	inactivityTimeout time.Duration // Inactivity timeout to kill a client connection
+	// Time interval to check for client connections that have reached
+	// the inactivity timeout and kill them
+	inactivityCheckInterval time.Duration
+	started                 bool // Flag server started
 
 	version      uint8
 	systemID     uint64
 	streamType   StreamType
 	ln           net.Listener
 	clients      map[string]*client
-	mutexClients sync.Mutex // Mutex for write access to clients map
+	mutexClients sync.RWMutex // Mutex for write access to clients map
 
 	nextEntry uint64 // Next sequential entry number
 	initEntry uint64 // Only used by the relay (initial next entry in the master server)
@@ -144,7 +148,7 @@ type client struct {
 	conn         net.Conn
 	status       ClientStatus
 	fromEntry    uint64
-	clientId     string
+	clientID     string
 	lastActivity time.Time
 }
 
@@ -161,7 +165,9 @@ type ResultEntry struct {
 }
 
 // NewServer creates a new data stream server
-func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, inactivityTimeout time.Duration, inactivityCheckInterval time.Duration, cfg *log.Config) (*StreamServer, error) {
+func NewServer(port uint16, version uint8, systemID uint64, streamType StreamType, fileName string,
+	writeTimeout time.Duration, inactivityTimeout time.Duration, inactivityCheckInterval time.Duration,
+	cfg *log.Config) (*StreamServer, error) {
 	// Create the server data stream
 	s := StreamServer{
 		port:                    port,
@@ -190,7 +196,7 @@ func NewServer(port uint16, version uint8, systemID uint64, streamType StreamTyp
 	// Add file extension if not present
 	ind := strings.IndexRune(s.fileName, '.')
 	if ind == -1 {
-		s.fileName = s.fileName + ".bin"
+		s.fileName += ".bin"
 	}
 
 	// Initialize the logger
@@ -253,14 +259,14 @@ func (s *StreamServer) checkClientInactivity() {
 		s.mutexClients.Lock()
 		for _, client := range s.clients {
 			if client.lastActivity.Add(s.inactivityTimeout).Before(time.Now()) {
-				clientsToKill[client.clientId] = struct{}{}
+				clientsToKill[client.clientID] = struct{}{}
 			}
 		}
 		s.mutexClients.Unlock()
 
-		for clientId := range clientsToKill {
-			log.Infof("killing inactive client %s", clientId)
-			s.killClient(clientId)
+		for clientID := range clientsToKill {
+			log.Infof("killing inactive client %s", clientID)
+			s.killClient(clientID)
 		}
 	}
 }
@@ -269,11 +275,13 @@ func (s *StreamServer) checkClientInactivity() {
 func (s *StreamServer) waitConnections() {
 	defer s.ln.Close()
 
+	const timeout = 2 * time.Second
+
 	for {
 		conn, err := s.ln.Accept()
 		if err != nil {
 			log.Errorf("Error accepting new connection: %v", err)
-			time.Sleep(2 * time.Second) // nolint:gomnd
+			time.Sleep(timeout)
 			continue
 		}
 
@@ -281,7 +289,7 @@ func (s *StreamServer) waitConnections() {
 		if s.getSafeClientsLen() >= maxConnections {
 			log.Warnf("Unable to accept client connection, maximum number of connections reached (%d)", maxConnections)
 			conn.Close()
-			time.Sleep(2 * time.Second) // nolint:gomnd
+			time.Sleep(timeout)
 			continue
 		}
 
@@ -294,49 +302,49 @@ func (s *StreamServer) waitConnections() {
 func (s *StreamServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	clientId := conn.RemoteAddr().String()
-	log.Debugf("New connection: %s", clientId)
+	clientID := conn.RemoteAddr().String()
+	log.Debugf("New connection: %s", clientID)
 
 	s.mutexClients.Lock()
 	client := &client{
 		conn:         conn,
 		status:       csStopped,
 		fromEntry:    0,
-		clientId:     clientId,
+		clientID:     clientID,
 		lastActivity: time.Now(),
 	}
-	s.clients[clientId] = client
+	s.clients[clientID] = client
 	s.mutexClients.Unlock()
 
 	for {
 		// Read command
 		command, err := readFullUint64(client)
 		if err != nil {
-			s.killClient(clientId)
+			s.killClient(clientID)
 			return
 		}
 		// Read stream type
 		stUint64, err := readFullUint64(client)
 		if err != nil {
-			s.killClient(clientId)
+			s.killClient(clientID)
 			return
 		}
 		st := StreamType(stUint64)
 
 		// Check stream type
 		if st != s.streamType {
-			log.Errorf("Mismatch stream type, killed: %s", clientId)
-			s.killClient(clientId)
+			log.Errorf("Mismatch stream type, killed: %s", clientID)
+			s.killClient(clientID)
 			return
 		}
 
 		// Manage the requested command
-		log.Debugf("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientId)
-		err = s.processCommand(Command(command), s.getSafeClient(clientId))
+		log.Debugf("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientID)
+		err = s.processCommand(Command(command), s.getSafeClient(clientID))
 		if err != nil {
 			// Kill client connection
-			time.Sleep(2 * time.Second) // nolint:gomnd
-			s.killClient(clientId)
+			time.Sleep(timeout)
+			s.killClient(clientID)
 			return
 		}
 	}
@@ -616,7 +624,7 @@ func (s *StreamServer) GetFirstEventAfterBookmark(bookmark []byte) (FileEntry, e
 }
 
 // GetDataBetweenBookmarks returns the data between two bookmarks
-func (s *StreamServer) GetDataBetweenBookmarks(bookmarkFrom []byte, bookmarkTo []byte) ([]byte, error) {
+func (s *StreamServer) GetDataBetweenBookmarks(bookmarkFrom, bookmarkTo []byte) ([]byte, error) {
 	var err error
 	var response []byte
 
@@ -682,7 +690,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		broadcastOp := <-s.stream
 		start := time.Now().UnixMilli()
 		var killedClientMap = map[string]struct{}{}
-		s.mutexClients.Lock()
+		s.mutexClients.RLock()
 		// For each connected and started client
 		log.Infof("sending %d datastream entries to %d clients", len(broadcastOp.entries), len(s.clients))
 		for id, cli := range s.clients {
@@ -712,7 +720,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 			}
 		}
-		s.mutexClients.Unlock()
+		s.mutexClients.RUnlock()
 
 		for k := range killedClientMap {
 			s.killClient(k)
@@ -723,18 +731,18 @@ func (s *StreamServer) broadcastAtomicOp() {
 }
 
 // killClient disconnects the client and removes it from server clients struct
-func (s *StreamServer) killClient(clientId string) {
+func (s *StreamServer) killClient(clientID string) {
 	s.mutexClients.Lock()
-	if s.clients[clientId] != nil {
-		if s.clients[clientId].status != csKilled {
-			s.clients[clientId].status = csKilled
-			if s.clients[clientId].conn != nil {
-				s.clients[clientId].conn.Close()
-			}
-			delete(s.clients, clientId)
+	defer s.mutexClients.Unlock()
+
+	client := s.clients[clientID]
+	if client != nil && client.status != csKilled {
+		client.status = csKilled
+		if client.conn != nil {
+			client.conn.Close()
 		}
+		delete(s.clients, clientID)
 	}
-	s.mutexClients.Unlock()
 }
 
 // processCommand manages the received TCP commands from the clients
@@ -826,11 +834,11 @@ func (s *StreamServer) processCmdStart(client *client) error {
 	client.fromEntry = fromEntry
 
 	// Log
-	log.Infof("Client %s command Start from %d", client.clientId, fromEntry)
+	log.Infof("Client %s command Start from %d", client.clientID, fromEntry)
 
 	// Check received param
 	if fromEntry > s.nextEntry && fromEntry > s.initEntry {
-		log.Infof("Start command invalid from entry %d for client %s", fromEntry, client.clientId)
+		log.Infof("Start command invalid from entry %d for client %s", fromEntry, client.clientID)
 		err = ErrStartCommandInvalidParamFromEntry
 		_ = s.sendResultEntry(uint32(CmdErrBadFromEntry), StrCommandErrors[CmdErrBadFromEntry], client)
 		return err
@@ -860,7 +868,8 @@ func (s *StreamServer) processCmdStartBookmark(client *client) error {
 
 	// Check maximum length allowed
 	if length > maxBookmarkLength {
-		log.Infof("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.", client.clientId, length, maxBookmarkLength)
+		log.Infof("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.",
+			client.clientID, length, maxBookmarkLength)
 		return ErrBookmarkMaxLength
 	}
 
@@ -871,12 +880,12 @@ func (s *StreamServer) processCmdStartBookmark(client *client) error {
 	}
 
 	// Log
-	log.Infof("Client %s command StartBookmark [%v]", client.clientId, bookmark)
+	log.Infof("Client %s command StartBookmark [%v]", client.clientID, bookmark)
 
 	// Get bookmark
 	entryNum, err := s.bookmark.GetBookmark(bookmark)
 	if err != nil {
-		log.Infof("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, client.clientId, err)
+		log.Infof("StartBookmark command invalid from bookmark %v for client %s: %v", bookmark, client.clientID, err)
 		err = ErrStartBookmarkInvalidParamFromBookmark
 		_ = s.sendResultEntry(uint32(CmdErrBadFromBookmark), StrCommandErrors[CmdErrBadFromBookmark], client)
 		return err
@@ -889,7 +898,7 @@ func (s *StreamServer) processCmdStartBookmark(client *client) error {
 	}
 
 	// Stream entries data from the entry number marked by the bookmark
-	log.Infof("Client %s Bookmark [%v] is the entry number [%d]", client.clientId, bookmark, entryNum)
+	log.Infof("Client %s Bookmark [%v] is the entry number [%d]", client.clientID, bookmark, entryNum)
 	if entryNum < s.nextEntry {
 		err = s.streamingFromEntry(client, entryNum)
 	}
@@ -900,7 +909,7 @@ func (s *StreamServer) processCmdStartBookmark(client *client) error {
 // processCmdStop processes the TCP Stop command from the clients
 func (s *StreamServer) processCmdStop(client *client) error {
 	// Log
-	log.Infof("Client %s command Stop", client.clientId)
+	log.Infof("Client %s command Stop", client.clientID)
 
 	// Send a command result entry OK
 	err := s.sendResultEntry(0, "OK", client)
@@ -910,7 +919,7 @@ func (s *StreamServer) processCmdStop(client *client) error {
 // processCmdHeader processes the TCP Header command from the clients
 func (s *StreamServer) processCmdHeader(client *client) error {
 	// Log
-	log.Infof("Client %s command Header", client.clientId)
+	log.Infof("Client %s command Header", client.clientID)
 
 	// Send a command result entry OK
 	err := s.sendResultEntry(0, "OK", client)
@@ -929,7 +938,7 @@ func (s *StreamServer) processCmdHeader(client *client) error {
 		err = ErrNilConnection
 	}
 	if err != nil {
-		log.Warnf("Error sending header entry to %s: %v", client.clientId, err)
+		log.Warnf("Error sending header entry to %s: %v", client.clientID, err)
 		return err
 	}
 	return nil
@@ -944,7 +953,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 	}
 
 	// Log
-	log.Infof("Client %s command Entry %d", client.clientId, entryNumber)
+	log.Infof("Client %s command Entry %d", client.clientID, entryNumber)
 
 	// Send a command result entry OK
 	err = s.sendResultEntry(0, "OK", client)
@@ -970,7 +979,7 @@ func (s *StreamServer) processCmdEntry(client *client) error {
 		err = ErrNilConnection
 	}
 	if err != nil {
-		log.Warnf("Error sending entry to %s: %v", client.clientId, err)
+		log.Warnf("Error sending entry to %s: %v", client.clientID, err)
 		return err
 	}
 
@@ -987,7 +996,8 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 
 	// Check maximum length allowed
 	if length > maxBookmarkLength {
-		log.Infof("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.", client.clientId, length, maxBookmarkLength)
+		log.Infof("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.",
+			client.clientID, length, maxBookmarkLength)
 		return ErrBookmarkMaxLength
 	}
 
@@ -998,7 +1008,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 	}
 
 	// Log
-	log.Infof("Client %s command Bookmark %v", client.clientId, bookmark)
+	log.Infof("Client %s command Bookmark %v", client.clientID, bookmark)
 
 	// Send a command result entry OK
 	err = s.sendResultEntry(0, "OK", client)
@@ -1024,7 +1034,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 		err = ErrNilConnection
 	}
 	if err != nil {
-		log.Warnf("Error sending entry to %s: %v", client.clientId, err)
+		log.Warnf("Error sending entry to %s: %v", client.clientID, err)
 		return err
 	}
 
@@ -1034,7 +1044,7 @@ func (s *StreamServer) processCmdBookmark(client *client) error {
 // streamingFromEntry sends to the client the stream data starting from the requested entry number
 func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) error {
 	// Log
-	log.Infof("SYNCING %s from entry %d...", client.clientId, fromEntry)
+	log.Infof("SYNCING %s from entry %d...", client.clientID, fromEntry)
 
 	// Start file stream iterator
 	iterator, err := s.streamFile.iteratorFrom(fromEntry, true)
@@ -1056,18 +1066,18 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 
 		// Send the file data entry
 		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
-		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientId)
+		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientID)
 		if client.conn != nil {
 			_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
 		} else {
 			err = ErrNilConnection
 		}
 		if err != nil {
-			log.Warnf("Error sending entry %d to %s: %v", iterator.Entry.Number, client.clientId, err)
+			log.Warnf("Error sending entry %d to %s: %v", iterator.Entry.Number, client.clientID, err)
 			return err
 		}
 	}
-	log.Infof("Synced %s until %d!", client.clientId, iterator.Entry.Number)
+	log.Infof("Synced %s until %d!", client.clientID, iterator.Entry.Number)
 
 	// Close iterator
 	s.streamFile.iteratorEnd(iterator)
@@ -1086,7 +1096,6 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 		errorNum:   errorNum,
 		errorStr:   byteSlice,
 	}
-	// PrintResultEntry(entry) // TODO: remove
 
 	// Convert struct to binary bytes
 	binaryEntry := encodeResultEntryToBinary(entry)
@@ -1100,24 +1109,22 @@ func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client 
 		err = ErrNilConnection
 	}
 	if err != nil {
-		log.Warnf("Error sending result entry to %s: %v", client.clientId, err)
+		log.Warnf("Error sending result entry to %s: %v", client.clientID, err)
 		return err
 	}
 	return nil
 }
 
-func (s *StreamServer) getSafeClient(clientId string) *client {
-	s.mutexClients.Lock()
-	client := s.clients[clientId]
-	s.mutexClients.Unlock()
-	return client
+func (s *StreamServer) getSafeClient(clientID string) *client {
+	s.mutexClients.RLock()
+	defer s.mutexClients.RUnlock()
+	return s.clients[clientID]
 }
 
 func (s *StreamServer) getSafeClientsLen() int {
-	s.mutexClients.Lock()
-	clientLen := len(s.clients)
-	s.mutexClients.Unlock()
-	return clientLen
+	s.mutexClients.RLock()
+	defer s.mutexClients.RUnlock()
+	return len(s.clients)
 }
 
 // BookmarkPrintDump prints all bookmarks
@@ -1131,7 +1138,7 @@ func (s *StreamServer) BookmarkPrintDump() {
 // readFullUint64 reads from a connection a complete uint64
 func readFullUint64(client *client) (uint64, error) {
 	// Read 8 bytes (uint64 value)
-	buffer, err := readFullBytes(8, client) // nolint:gomnd
+	buffer, err := readFullBytes(8, client) //nolint:mnd
 	if err != nil {
 		return 0, err
 	}
@@ -1145,7 +1152,7 @@ func readFullUint64(client *client) (uint64, error) {
 // readFullUint32 reads from a connection a complete uint32
 func readFullUint32(client *client) (uint32, error) {
 	// Read 4 bytes (uint32 value)
-	buffer, err := readFullBytes(4, client) // nolint:gomnd
+	buffer, err := readFullBytes(4, client) //nolint:mnd
 	if err != nil {
 		return 0, err
 	}
@@ -1170,7 +1177,7 @@ func readFullBytes(length uint32, client *client) ([]byte, error) {
 		if err == io.EOF {
 			log.Debugf("Client %s close connection", client.conn.RemoteAddr().String())
 		} else {
-			log.Warnf("Error reading from client %s, error: %v", client.clientId, err)
+			log.Warnf("Error reading from client %s, error: %v", client.clientID, err)
 		}
 		return buffer, err
 	}
@@ -1185,7 +1192,7 @@ func encodeResultEntryToBinary(e ResultEntry) []byte {
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.length)
 	be = binary.BigEndian.AppendUint32(be, e.errorNum)
-	be = append(be, e.errorStr...)
+	be = append(be, e.errorStr...) //nolint:makezero
 	return be
 }
 
@@ -1234,7 +1241,7 @@ func TimeoutWrite(client *client, data []byte, timeout time.Duration) (int, erro
 	n, err := client.conn.Write(data)
 	if err != nil {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
-			log.Debugf("Write deadline exceeded for client %s, error: %v", client.clientId, err)
+			log.Debugf("Write deadline exceeded for client %s, error: %v", client.clientID, err)
 		}
 	} else {
 		client.updateActivity()

@@ -3,14 +3,34 @@ run:
 
 linters:
   enable:
-  - whitespace
-  - gosec
-  - gci
-  - misspell
-  - gomnd
-  - gofmt
-  - goimports
-  - revive
+  - gci # Gci controls Go package import order and makes it always deterministic.
+  - mnd # An analyzer to detect magic numbers.
+  - revive # Fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
+  - whitespace # Tool for detection of leading and trailing whitespace
+  - wastedassign # Finds wasted assignment statements
+  - unconvert # Unnecessary type conversions
+  - tparallel # Detects inappropriate usage of t.Parallel() method in your Go test codes
+  - thelper # Detects golang test helpers without t.Helper() call and checks the consistency of test helpers
+  - stylecheck # Stylecheck is a replacement for golint
+  - prealloc # Finds slice declarations that could potentially be pre-allocated
+  - predeclared # Finds code that shadows one of Go's predeclared identifiers
+  - nolintlint # Ill-formed or insufficient nolint directives
+  - misspell # Misspelled English words in comments
+  - makezero # Finds slice declarations with non-zero initial length
+  - lll # Long lines
+  - importas # Enforces consistent import aliases
+  - gosec # Security problems
+  - gofmt # Whether the code was gofmt-ed
+  - goimports # Unused imports
+  - goconst # Repeated strings that could be replaced by a constant
+  - forcetypeassert # Finds forced type assertions
+  - dogsled # Checks assignments with too many blank identifiers (e.g. x, , , _, := f())
+  - dupl # Code clone detection
+  - errname # Checks that sentinel errors are prefixed with the Err and error types are suffixed with the Error
+  - errorlint # errorlint is a linter for that can be used to find code that will cause problems with the error wrapping scheme introduced in Go 1.13
+  - gocritic # Highly extensible Go source code linter providing checks currently missing from other linters.
+  - errcheck # Errcheck is a go lint rule for checking for unchecked errors in go programs. These unchecked errors can be critical bugs in some cases
+  - godox # Godox is a linter for TODOs and FIXMEs left in the code
 
 linters-settings:
   revive:
@@ -18,6 +38,41 @@ linters-settings:
     - name: exported
       arguments:
       - disableStutteringCheck
+
+  gocritic:
+    # The checks that should be enabled; can't be combined with 'disabled-checks';
+    # See https://go-critic.github.io/overview#checks-overview
+    # To check which checks are enabled run `GL_DEBUG=gocritic ./build/bin/golangci-lint run`
+    # By default list of stable checks is used.
+    enabled-checks:
+      - ruleguard
+
+    disabled-checks:
+      - regexpMust
+      - appendAssign
+      - rangeValCopy
+      - exitAfterDefer
+      - elseif
+      - dupBranchBody
+      - assignOp
+      - singleCaseSwitch
+      - unlambda
+      - captLocal
+      - commentFormatting
+      - ifElseChain
+      - importShadow
+      - paramTypeCombine
+      - builtinShadow
+      - typeUnparen
+
+    # Enable multiple checks by tags, run `GL_DEBUG=gocritic golangci-lint run` to see all tags and checks.
+    # Empty list by default. See https://github.com/go-critic/go-critic#usage -> section "Tags".
+    enabled-tags:
+      - performance
+      - diagnostic
+      - opinionated
+    disabled-tags:
+      - experimental
 
 issues:
   include:
