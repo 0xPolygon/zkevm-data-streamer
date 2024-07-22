@@ -93,8 +93,8 @@ func defaultConfig() (*config, error) {
 		Server:            "127.0.0.1:6900",
 		Port:              7900, //nolint:mnd
 		File:              "datarelay.bin",
-		WriteTimeout:      3 * time.Second,                  //nolint:mnd
-		InactivityTimeout: time.Duration(120 * time.Second), //nolint:mnd
+		WriteTimeout:      3 * time.Second,   //nolint:mnd
+		InactivityTimeout: 120 * time.Second, //nolint:mnd
 		Log:               "info",
 	}, nil
 }
@@ -199,7 +199,7 @@ func run(ctx *cli.Context) error {
 
 	// Create relay server
 	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), streamerVersion, streamerSystemID,
-		StSequencer, cfg.File, cfg.WriteTimeout, cfg.InactivityTimeout, 5*time.Second, nil)
+		StSequencer, cfg.File, cfg.WriteTimeout, cfg.InactivityTimeout, 5*time.Second, nil) //nolint:mnd
 	if err != nil {
 		log.Errorf(">> Relay server: NewRelay error! (%v)", err)
 		return err
