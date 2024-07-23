@@ -3,6 +3,9 @@ version: "3.5"
 services:
   datastream-relay:
     container_name: datastream-relay
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     image: datastream-relay
     ports: 
@@ -10,7 +13,7 @@ services:
     volumes:
       - ./dist:/app
       - ./config/environments/${DATASTREAM_NETWORK}/config.toml:/app/config.toml
-    command: 
+    command:
       - "/bin/sh"
       - "-c"
       - "/app/dsrelay --cfg /app/config.toml"
