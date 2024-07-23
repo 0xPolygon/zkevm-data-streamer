@@ -2,7 +2,6 @@
 FROM golang:1.21 AS build
 
 # INSTALL DEPENDENCIES
-RUN go install github.com/gobuffalo/packr/v2/packr2@v2.8.3
 COPY go.mod go.sum /src/
 RUN cd /src && go mod download
 
@@ -27,4 +26,4 @@ USER $USER
 WORKDIR $HOME
 
 EXPOSE 7900
-CMD ["/bin/sh", "-c", "/app/dsrelay"]
+CMD ["/app/dsrelay"]
