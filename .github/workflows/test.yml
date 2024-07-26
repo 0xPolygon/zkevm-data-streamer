@@ -52,5 +52,8 @@
 
           - name: SonarCloud analysis
             uses: SonarSource/sonarcloud-github-action@master
+            with:
+              args:
+                -X
             env:
               SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
