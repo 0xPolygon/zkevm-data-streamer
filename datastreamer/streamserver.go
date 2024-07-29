@@ -469,7 +469,7 @@ func (s *StreamServer) CommitAtomicOp() error {
 	// No atomic operation in progress
 	s.clearAtomicOp()
 
-	log.Infof("commited datastream atomic operation, startEntry: %d, time: %v", s.atomicOp.startEntry, time.Since(start))
+	log.Infof("committed datastream atomic operation, startEntry: %d, time: %v", s.atomicOp.startEntry, time.Since(start))
 
 	return nil
 }
