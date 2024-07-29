@@ -732,10 +732,14 @@ func (s *StreamServer) broadcastAtomicOp() {
 
 		sClients := ""
 		for c := range clientMap {
-			sClients += ", " + c
+			if sClients == "" {
+				sClients = c
+			} else {
+				sClients += ", " + c
+			}
 		}
 
-		log.Infof("sent datastream entries, count: %d, clients: %d, time: %v, client-ips: {%s}", len(broadcastOp.entries), len(s.clients), time.Since(start), sClients)
+		log.Infof("sent datastream entries, count: %d, clients: %d, time: %v, clients-ip: {%s}", len(broadcastOp.entries), len(s.clients), time.Since(start), sClients)
 	}
 }
 
