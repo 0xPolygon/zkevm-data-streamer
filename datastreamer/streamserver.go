@@ -739,7 +739,8 @@ func (s *StreamServer) broadcastAtomicOp() {
 			}
 		}
 
-		log.Infof("sent datastream entries, count: %d, clients: %d, time: %v, clients-ip: {%s}", len(broadcastOp.entries), len(s.clients), time.Since(start), sClients)
+		log.Infof("sent datastream entries, count: %d, clients: %d, time: %v, clients-ip: {%s}",
+			len(broadcastOp.entries), len(s.clients), time.Since(start), sClients)
 	}
 }
 
