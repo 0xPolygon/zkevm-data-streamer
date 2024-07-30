@@ -440,12 +440,11 @@ func (s *StreamServer) addStream(desc string, etype EntryType, data []byte) (uin
 
 // CommitAtomicOp commits the current atomic operation and streams it to the clients
 func (s *StreamServer) CommitAtomicOp() error {
-	start := time.Now().UnixNano()
-	defer log.Infof("CommitAtomicOp process time: %vns", time.Now().UnixNano()-start)
+	start := time.Now()
 
-	log.Infof("commit datastream atomic operation, startEntry: %d", s.atomicOp.startEntry)
+	log.Debugf("committing datastream atomic operation, startEntry: %d", s.atomicOp.startEntry)
 	if s.atomicOp.status != aoStarted {
-		log.Errorf("Commit not allowed, AtomicOp is not in the started state")
+		log.Errorf("commit not allowed, atomic operation is not in the started state")
 		return ErrCommitNotAllowed
 	}
 
@@ -469,6 +468,8 @@ func (s *StreamServer) CommitAtomicOp() error {
 
 	// No atomic operation in progress
 	s.clearAtomicOp()
+
+	log.Infof("committed datastream atomic operation, startEntry: %d, time: %v", s.atomicOp.startEntry, time.Since(start))
 
 	return nil
 }
@@ -688,13 +689,15 @@ func (s *StreamServer) broadcastAtomicOp() {
 	for {
 		// Wait for new atomic operation to broadcast
 		broadcastOp := <-s.stream
-		start := time.Now().UnixMilli()
+		start := time.Now()
 		var killedClientMap = map[string]struct{}{}
+		var clientMap = map[string]struct{}{}
 		s.mutexClients.RLock()
 		// For each connected and started client
-		log.Infof("sending %d datastream entries to %d clients", len(broadcastOp.entries), len(s.clients))
+		log.Debug("sending datastream entries, count: %d, clients: %d", len(broadcastOp.entries), len(s.clients))
 		for id, cli := range s.clients {
-			log.Debugf("Client %s status %d[%s]", id, cli.status, StrClientStatus[cli.status])
+			log.Debugf("client %s status %d (%s)", id, cli.status, StrClientStatus[cli.status])
+			clientMap[id] = struct{}{}
 			if cli.status != csSynced {
 				continue
 			}
@@ -702,7 +705,8 @@ func (s *StreamServer) broadcastAtomicOp() {
 			// Send entries
 			for _, entry := range broadcastOp.entries {
 				if entry.Number >= cli.fromEntry {
-					log.Debugf("Sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
+					log.Debugf("sending data entry %d (type %d) to %s", entry.Number, entry.Type, id)
+
 					binaryEntry := encodeFileEntryToBinary(entry)
 
 					// Send the file data entry
@@ -713,7 +717,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 					}
 					if err != nil {
 						// Kill client connection
-						log.Warnf("Error sending entry to %s: %v", id, err)
+						log.Warnf("error sending entry to %s, error: %v", id, err)
 						killedClientMap[id] = struct{}{}
 						break // skip rest of entries for this client
 					}
@@ -726,7 +730,17 @@ func (s *StreamServer) broadcastAtomicOp() {
 			s.killClient(k)
 		}
 
-		log.Infof("broadcastAtomicOp process time: %vms", time.Now().UnixMilli()-start)
+		sClients := ""
+		for c := range clientMap {
+			if sClients == "" {
+				sClients = c
+			} else {
+				sClients += ", " + c
+			}
+		}
+
+		log.Infof("sent datastream entries, count: %d, clients: %d, time: %v, clients-ip: {%s}",
+			len(broadcastOp.entries), len(s.clients), time.Since(start), sClients)
 	}
 }
 
