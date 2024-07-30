@@ -13,7 +13,6 @@ check-docker:
 	@which docker > /dev/null || (echo "Error: docker is not installed" && exit 1)
 
 # Targets that require the checks
-run-server: check-go
 build-dsapp: check-go
 build-dsrelay: check-go
 build-docker: check-docker
@@ -45,7 +44,7 @@ build-docker-nc: ## Builds a docker image with datastream relay binary but witho
 
 .PHONY: test
 test:
-	go test -count=1 -short -race -p 1 -timeout 60s ./...
+	go test -coverprofile coverage.out -count=1 -short -race -p 1 -timeout 60s ./...
 
 ## Help display.
 ## Pulls comments from beside commands and prints a nicely formatted
@@ -57,3 +56,4 @@ help: ## Prints this help
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	| sort \
 	| awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	

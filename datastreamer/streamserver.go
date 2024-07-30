@@ -765,69 +765,25 @@ func (s *StreamServer) processCommand(command Command, client *client) error {
 
 	// Manage each different kind of command request from a client
 	var err error
+
 	switch command {
 	case CmdStart:
-		if cli.status != csStopped {
-			log.Error("Stream to client already started!")
-			err = ErrClientAlreadyStarted
-			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], client)
-		} else {
-			cli.status = csSyncing
-			err = s.processCmdStart(client)
-			if err == nil {
-				cli.status = csSynced
-			}
-		}
+		err = s.handleStartCommand(cli)
 
 	case CmdStartBookmark:
-		if cli.status != csStopped {
-			log.Error("Stream to client already started!")
-			err = ErrClientAlreadyStarted
-			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], client)
-		} else {
-			cli.status = csSyncing
-			err = s.processCmdStartBookmark(client)
-			if err == nil {
-				cli.status = csSynced
-			}
-		}
+		err = s.handleStartBookmarkCommand(cli)
 
 	case CmdStop:
-		if cli.status != csSynced {
-			log.Error("Stream to client already stopped!")
-			err = ErrClientAlreadyStopped
-			_ = s.sendResultEntry(uint32(CmdErrAlreadyStopped), StrCommandErrors[CmdErrAlreadyStopped], client)
-		} else {
-			cli.status = csStopped
-			err = s.processCmdStop(client)
-		}
+		err = s.handleStopCommand(cli)
 
 	case CmdHeader:
-		if cli.status != csStopped {
-			log.Error("Header command not allowed, stream started!")
-			err = ErrHeaderCommandNotAllowed
-			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], client)
-		} else {
-			err = s.processCmdHeader(client)
-		}
+		err = s.handleHeaderCommand(cli)
 
 	case CmdEntry:
-		if cli.status != csStopped {
-			log.Error("Entry command not allowed, stream started!")
-			err = ErrEntryCommandNotAllowed
-			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], client)
-		} else {
-			err = s.processCmdEntry(client)
-		}
+		err = s.handleEntryCommand(cli)
 
 	case CmdBookmark:
-		if cli.status != csStopped {
-			log.Error("Bookmark command not allowed, stream started!")
-			err = ErrBookmarkCommandNotAllowed
-			_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], client)
-		} else {
-			err = s.processCmdBookmark(client)
-		}
+		err = s.handleBookmarkCommand(cli)
 
 	default:
 		log.Error("Invalid command!")
@@ -836,6 +792,85 @@ func (s *StreamServer) processCommand(command Command, client *client) error {
 	}
 
 	return err
+}
+
+// handleStartCommand processes the CmdStart command
+func (s *StreamServer) handleStartCommand(cli *client) error {
+	if cli.status != csStopped {
+		log.Error("Stream to client already started!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], cli)
+		return ErrClientAlreadyStarted
+	}
+
+	cli.status = csSyncing
+	err := s.processCmdStart(cli)
+	if err == nil {
+		cli.status = csSynced
+	}
+
+	return err
+}
+
+// handleStartBookmarkCommand processes the CmdStartBookmark command
+func (s *StreamServer) handleStartBookmarkCommand(cli *client) error {
+	if cli.status != csStopped {
+		log.Error("Stream to client already started!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], cli)
+		return ErrClientAlreadyStarted
+	}
+
+	cli.status = csSyncing
+	err := s.processCmdStartBookmark(cli)
+	if err == nil {
+		cli.status = csSynced
+	}
+
+	return err
+}
+
+// handleStopCommand processes the CmdStop command
+func (s *StreamServer) handleStopCommand(cli *client) error {
+	if cli.status != csSynced {
+		log.Error("Stream to client already stopped!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStopped), StrCommandErrors[CmdErrAlreadyStopped], cli)
+		return ErrClientAlreadyStopped
+	}
+
+	cli.status = csStopped
+	return s.processCmdStop(cli)
+}
+
+// handleHeaderCommand processes the CmdHeader command
+func (s *StreamServer) handleHeaderCommand(cli *client) error {
+	if cli.status != csStopped {
+		log.Error("Header command not allowed, stream started!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], cli)
+		return ErrHeaderCommandNotAllowed
+	}
+
+	return s.processCmdHeader(cli)
+}
+
+// handleEntryCommand processes the CmdEntry command
+func (s *StreamServer) handleEntryCommand(cli *client) error {
+	if cli.status != csStopped {
+		log.Error("Entry command not allowed, stream started!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], cli)
+		return ErrEntryCommandNotAllowed
+	}
+
+	return s.processCmdEntry(cli)
+}
+
+// handleBookmarkCommand processes the CmdBookmark command
+func (s *StreamServer) handleBookmarkCommand(cli *client) error {
+	if cli.status != csStopped {
+		log.Error("Bookmark command not allowed, stream started!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], cli)
+		return ErrBookmarkCommandNotAllowed
+	}
+
+	return s.processCmdBookmark(cli)
 }
 
 // processCmdStart processes the TCP Start command from the clients
