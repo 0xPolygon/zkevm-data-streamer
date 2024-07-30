@@ -57,6 +57,3 @@
               GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
               SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-            with:
-              args: >
-                -Dsonar.verbose=true
