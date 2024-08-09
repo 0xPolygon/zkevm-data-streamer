@@ -342,10 +342,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		log.Debugf("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientID)
 		err = s.processCommand(Command(command), s.getSafeClient(clientID))
 		if err != nil {
-			// Kill client connection
-			time.Sleep(timeout)
-			s.killClient(clientID)
-			return
+			log.Errorf("Error processing command %d[%s] from %s: %v", command, StrCommand[Command(command)], clientID, err)
 		}
 	}
 }
