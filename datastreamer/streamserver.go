@@ -41,8 +41,6 @@ const (
 	maxConnections    = 100 // Maximum number of connected clients
 	streamBuffer      = 256 // Buffers for the stream channel
 	maxBookmarkLength = 16  // Maximum number of bytes for a bookmark
-
-	timeout = 2 * time.Second
 )
 
 const (
@@ -342,10 +340,7 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 		log.Debugf("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientID)
 		err = s.processCommand(Command(command), s.getSafeClient(clientID))
 		if err != nil {
-			// Kill client connection
-			time.Sleep(timeout)
-			s.killClient(clientID)
-			return
+			log.Errorf("Error processing command %d[%s] from %s: %v", command, StrCommand[Command(command)], clientID, err)
 		}
 	}
 }
