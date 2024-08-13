@@ -298,7 +298,7 @@ func (s *StreamServer) waitConnections() {
 
 // handleConnection reads from the client connection and processes the received commands
 func (s *StreamServer) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	// defer conn.Close()
 
 	clientID := conn.RemoteAddr().String()
 	log.Debugf("New connection: %s", clientID)
