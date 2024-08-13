@@ -286,7 +286,7 @@ func (s *StreamServer) waitConnections() {
 		// Check max connections allowed
 		if s.getSafeClientsLen() >= maxConnections {
 			log.Warnf("Unable to accept client connection, maximum number of connections reached (%d)", maxConnections)
-			conn.Close()
+			// conn.Close()
 			time.Sleep(timeout)
 			continue
 		}
@@ -747,9 +747,9 @@ func (s *StreamServer) killClient(clientID string) {
 	client := s.clients[clientID]
 	if client != nil && client.status != csKilled {
 		client.status = csKilled
-		if client.conn != nil {
-			client.conn.Close()
-		}
+		// if client.conn != nil {
+		// 	client.conn.Close()
+		// }
 		delete(s.clients, clientID)
 	}
 }
