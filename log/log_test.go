@@ -94,3 +94,28 @@ func TestAppendStackTraceMaybeArgs(t *testing.T) {
 	assert.Contains(t, stackTraceStr, "/log/log_test.go")
 	assert.Contains(t, stackTraceStr, "TestAppendStackTraceMaybeArgs")
 }
+
+func TestAppendStackTraceMaybeKV(t *testing.T) {
+	msg := "Test message"
+
+	// Test case: No error in key-value pairs
+	kv := []interface{}{"key1", "value1", "key2", "value2"}
+	result := appendStackTraceMaybeKV(msg, kv)
+	assert.Equal(t, msg, result, "Expected message to be unchanged when no error is present")
+
+	// Test case: Error in key-value pairs
+	err := errors.New("Test error")
+	wrappedErr := tracerr.Wrap(err)
+	expectedErrMsg := fmt.Sprintf("%v: %v", msg, wrappedErr.Error())
+	kv = []interface{}{"key1", "value1", "errorKey", err}
+	result = appendStackTraceMaybeKV(msg, kv)
+
+	assert.Contains(t, result, expectedErrMsg, "Expected message to include the error and its stack trace")
+	assert.Contains(t, result, "log_test.go", "Expected stack trace to include 'log_test.go'")
+	assert.Contains(t, result, "TestAppendStackTraceMaybeKV", "Expected stack trace to include 'TestAppendStackTraceMaybeKV'")
+
+	// Test case: Error at an even index should be ignored
+	kv = []interface{}{err, "value2", "key2", "value2"}
+	result = appendStackTraceMaybeKV(msg, kv)
+	assert.Equal(t, msg, result, "Expected message to be unchanged when error is at an odd index")
+}
