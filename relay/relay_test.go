@@ -40,7 +40,7 @@ InactivityTimeout = 60
 Log = "debug"
 `
 
-	err := os.WriteFile(configFile, []byte(configContent), 0644)
+	err := os.WriteFile(configFile, []byte(configContent), 0600)
 	assert.NoError(t, err)
 
 	app := cli.NewApp()
