@@ -240,8 +240,20 @@ func TestServer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), entryNumber)
 
+	// Case: Start atomic operation with atomic operation in progress -> FAIL
+	_ = streamServer.StartAtomicOp()
+	err = streamServer.StartAtomicOp()
+	_ = streamServer.CommitAtomicOp()
+	require.EqualError(t, datastreamer.ErrStartAtomicOpNotAllowed, err.Error())
+
+	// Case: Commit atomic operation without starting atomic operation -> FAIL
 	err = streamServer.CommitAtomicOp()
-	require.NoError(t, err)
+	require.EqualError(t, datastreamer.ErrCommitNotAllowed, err.Error())
+
+	// Case: AddStreamBookmark without atomic operation in progress -> FAIL
+	entryNumber, err = streamServer.AddStreamBookmark(testBookmark.Encode())
+	require.Equal(t, uint64(0), entryNumber)
+	require.EqualError(t, datastreamer.ErrAddEntryNotAllowed, err.Error())
 
 	// Check get data between 2 bookmarks
 	data, err := streamServer.GetDataBetweenBookmarks(testBookmark.Encode(), testBookmark2.Encode())
@@ -355,6 +367,10 @@ func TestServer(t *testing.T) {
 
 	err = streamServer.RollbackAtomicOp()
 	require.NoError(t, err)
+
+	// Case: Rollback operation without starting atomic operation -> FAIL
+	err = streamServer.RollbackAtomicOp()
+	require.EqualError(t, datastreamer.ErrRollbackNotAllowed, err.Error())
 
 	// Case: Get entry data of previous rollback entry number (doesn't exist) -> FAIL
 	entry, err = streamServer.GetEntry(7)
