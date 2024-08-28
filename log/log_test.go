@@ -112,7 +112,12 @@ func TestAppendStackTraceMaybeKV(t *testing.T) {
 
 	assert.Contains(t, result, expectedErrMsg, "Expected message to include the error and its stack trace")
 	assert.Contains(t, result, "log_test.go", "Expected stack trace to include 'log_test.go'")
-	assert.Contains(t, result, "TestAppendStackTraceMaybeKV", "Expected stack trace to include 'TestAppendStackTraceMaybeKV'")
+	assert.Contains(
+		t,
+		result,
+		"TestAppendStackTraceMaybeKV",
+		"Expected stack trace to include 'TestAppendStackTraceMaybeKV'",
+	)
 
 	// Test case: Error at an even index should be ignored
 	kv = []interface{}{err, "value2", "key2", "value2"}
