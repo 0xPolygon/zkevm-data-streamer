@@ -577,10 +577,21 @@ func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc) {
 	c.setProcessEntryFunc(f, nil)
 }
 
+// ResetProcessEntryFunc resets the callback function to the default one
+func (c *StreamClient) ResetProcessEntryFunc() {
+	// Set default callback function to process entry
+	c.setProcessEntryFunc(PrintReceivedEntry, c.relayServer)
+}
+
 // setProcessEntryFunc sets the callback function to process entry with server parameter
 func (c *StreamClient) setProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) {
 	c.processEntry = f
 	c.relayServer = s
+}
+
+// IsStarted returns if the client is started
+func (c *StreamClient) IsStarted() bool {
+	return c.started
 }
 
 // PrintReceivedEntry prints received entry (default callback function)
