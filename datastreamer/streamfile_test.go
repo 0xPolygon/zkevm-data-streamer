@@ -6,6 +6,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
 	"github.com/stretchr/testify/require"
 )
+
 func TestOpenFile(t *testing.T) {
 	fileName := "/tmp/datastreamer_test_3.bin"
 	err := deleteFiles(fileName)

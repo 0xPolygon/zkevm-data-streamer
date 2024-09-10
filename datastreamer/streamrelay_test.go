@@ -18,7 +18,8 @@ func TestRelay(t *testing.T) {
 	err = deleteFiles(fileName2)
 	require.NoError(t, err)
 
-	streamServer, err := datastreamer.NewServer(6901, 1, 137, streamType, fileName1, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, &config.Log)
+	streamServer, err := datastreamer.NewServer(6901, 1, 137, streamType,
+		fileName1, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, &config.Log)
 	require.NoError(t, err)
 
 	err = streamServer.Start()
@@ -46,7 +47,8 @@ func TestRelay(t *testing.T) {
 	require.NoError(t, err)
 
 	var relayPort uint16 = 6902
-	sr, err := datastreamer.NewRelay(fmt.Sprintf("localhost:%d", 6901), relayPort, 1, 137, datastreamer.StreamType(1), fileName2, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, &config.Log)
+	sr, err := datastreamer.NewRelay(fmt.Sprintf("localhost:%d", 6901), relayPort, 1, 137, datastreamer.StreamType(1),
+		fileName2, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, &config.Log)
 	require.NoError(t, err)
 	err = sr.Start()
 	require.NoError(t, err)
