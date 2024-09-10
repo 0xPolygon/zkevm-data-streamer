@@ -20,7 +20,11 @@ func NewRelay(server string, port uint16, version uint8, systemID uint64,
 	var err error
 
 	// Create client side
-	r.client = NewClient(server, streamType)
+	r.client, err = NewClient(server, streamType)
+	if err != nil {
+		log.Errorf("Error creating relay client side: %v", err)
+		return nil, err
+	}
 
 	// Create server side
 	r.server, err = NewServer(port, version, systemID, streamType, fileName, writeTimeout,
@@ -39,7 +43,11 @@ func NewRelay(server string, port uint16, version uint8, systemID uint64,
 // Start connects and syncs with master server then opens access to relay clients
 func (r *StreamRelay) Start() error {
 	// Start client side
-	r.client.Start()
+	err := r.client.Start()
+	if err != nil {
+		log.Errorf("Error starting relay client: %v", err)
+		return err
+	}
 
 	// Get total entries from the master server
 	header, err := r.client.ExecCommandGetHeader()

@@ -45,7 +45,7 @@ type StreamClient struct {
 }
 
 // NewClient creates a new data stream client
-func NewClient(server string, streamType StreamType) *StreamClient {
+func NewClient(server string, streamType StreamType) (*StreamClient, error) {
 	// Create the client data stream
 	c := StreamClient{
 		server:       server,
@@ -69,17 +69,17 @@ func NewClient(server string, streamType StreamType) *StreamClient {
 	// Set default callback function to process entry
 	c.setProcessEntryFunc(PrintReceivedEntry, c.relayServer)
 
-	return &c
+	return &c, nil
 }
 
 // NewClientWithLogsConfig creates a new data stream client with logs configuration
-func NewClientWithLogsConfig(server string, streamType StreamType, logsConfig log.Config) *StreamClient {
+func NewClientWithLogsConfig(server string, streamType StreamType, logsConfig log.Config) (*StreamClient, error) {
 	log.Init(logsConfig)
 	return NewClient(server, streamType)
 }
 
 // Start connects to the data stream server and starts getting data from the server
-func (c *StreamClient) Start() {
+func (c *StreamClient) Start() error {
 	// Connect to server
 	c.connectServer()
 
@@ -91,6 +91,8 @@ func (c *StreamClient) Start() {
 
 	// Flag stared
 	c.started = true
+
+	return nil
 }
 
 // connectServer waits until the server connection is established and returns if a command result is pending
@@ -114,7 +116,7 @@ func (c *StreamClient) connectServer() bool {
 			if c.streaming {
 				_, _, err = c.execCommand(CmdStart, true, c.nextEntry, nil)
 				if err != nil {
-					c.CloseConnection()
+					c.closeConnection()
 					time.Sleep(defaultTimeout)
 					continue
 				}
@@ -127,8 +129,8 @@ func (c *StreamClient) connectServer() bool {
 	return false
 }
 
-// CloseConnection closes connection to the server
-func (c *StreamClient) CloseConnection() {
+// closeConnection closes connection to the server
+func (c *StreamClient) closeConnection() {
 	if c.conn != nil {
 		log.Infof("%s Close connection", c.ID)
 		c.conn.Close()
@@ -430,7 +432,7 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	if err != nil {
 		return e, err
 	}
-	// e.PrintResultEntry()
+	// PrintResultEntry(e)
 	return e, nil
 }
 
@@ -451,7 +453,7 @@ func (c *StreamClient) readContent(buffer []byte) error {
 
 // readEntries reads from the server all type of packets
 func (c *StreamClient) readEntries() {
-	defer c.CloseConnection()
+	defer c.closeConnection()
 
 	for {
 		// Wait for connection
@@ -461,7 +463,7 @@ func (c *StreamClient) readEntries() {
 		packet := make([]byte, 1)
 		err := c.readContent(packet)
 		if err != nil {
-			c.CloseConnection()
+			c.closeConnection()
 			continue
 		}
 
@@ -471,7 +473,7 @@ func (c *StreamClient) readEntries() {
 			// Read result entry data
 			r, err := c.readResultEntry()
 			if err != nil {
-				c.CloseConnection()
+				c.closeConnection()
 				continue
 			}
 			// Send data to results channel
@@ -480,7 +482,7 @@ func (c *StreamClient) readEntries() {
 			if deferredResult {
 				r := c.getResult(CmdStart)
 				if r.errorNum != uint32(CmdErrOK) {
-					c.CloseConnection()
+					c.closeConnection()
 					time.Sleep(defaultTimeout)
 					continue
 				}
@@ -490,7 +492,7 @@ func (c *StreamClient) readEntries() {
 			// Read result entry data
 			r, err := c.readDataEntry()
 			if err != nil {
-				c.CloseConnection()
+				c.closeConnection()
 				continue
 			}
 			c.entryRsp <- r
@@ -499,7 +501,7 @@ func (c *StreamClient) readEntries() {
 			// Read header entry data
 			h, err := c.readHeaderEntry()
 			if err != nil {
-				c.CloseConnection()
+				c.closeConnection()
 				continue
 			}
 			// Send data to headers channel
@@ -509,7 +511,7 @@ func (c *StreamClient) readEntries() {
 			// Read file/stream entry data
 			e, err := c.readDataEntry()
 			if err != nil {
-				c.CloseConnection()
+				c.closeConnection()
 				continue
 			}
 			// Send data to stream entries channel

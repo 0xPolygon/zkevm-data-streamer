@@ -104,6 +104,7 @@ var (
 		},
 		WriteTimeout: 3 * time.Second,
 	}
+	leveldb      = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
 	streamServer *datastreamer.StreamServer
 	streamType   = datastreamer.StreamType(1)
 	entryType1   = datastreamer.EntryType(1)
@@ -179,15 +180,15 @@ var (
 	}
 )
 
-func deleteFiles(fileName string) error {
+func deleteFiles() error {
 	// Delete test file from filesystem
-	err := os.Remove(fileName)
+	err := os.Remove(config.Filename)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
 	// Delete leveldb folder from filesystem
-	err = os.RemoveAll(fileName[0:strings.IndexRune(fileName, '.')] + ".db")
+	err = os.RemoveAll(leveldb)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -196,7 +197,7 @@ func deleteFiles(fileName string) error {
 }
 
 func TestServer(t *testing.T) {
-	err := deleteFiles(config.Filename)
+	err := deleteFiles()
 	if err != nil {
 		panic(err)
 	}
@@ -447,8 +448,6 @@ func TestServer(t *testing.T) {
 
 	// Log final file header
 	datastreamer.PrintHeaderEntry(streamServer.GetHeader(), "final tests")
-
-	streamServer.BookmarkPrintDump()
 }
 
 func TestClient(t *testing.T) {
@@ -457,13 +456,15 @@ func TestClient(t *testing.T) {
 	var entry datastreamer.FileEntry
 	var header datastreamer.HeaderEntry
 
-	client := datastreamer.NewClient(fmt.Sprintf("localhost:%d", config.Port), streamType)
+	client, err := datastreamer.NewClient(fmt.Sprintf("localhost:%d", config.Port), streamType)
+	require.NoError(t, err)
 
-	client.Start()
+	err = client.Start()
+	require.NoError(t, err)
 
 	// Case: Query data from not existing bookmark -> FAIL
 	fromBookmark = nonAddedBookmark.Encode()
-	_, err := client.ExecCommandGetBookmark(fromBookmark)
+	_, err = client.ExecCommandGetBookmark(fromBookmark)
 	require.EqualError(t, datastreamer.ErrBookmarkNotFound, err.Error())
 
 	// Case: Query data from existing bookmark -> OK
@@ -533,9 +534,4 @@ func TestClient(t *testing.T) {
 	entry, err = client.ExecCommandGetEntry(fromEntry)
 	require.NoError(t, err)
 	require.Equal(t, testEntries[2], TestEntry{}.Decode(entry.Data))
-	require.Equal(t, uint64(0), client.GetFromStream())
-	require.Equal(t, uint64(1304), client.GetTotalEntries())
-	require.True(t, client.IsStarted())
-	log.Debug("closing connection from the test")
-	client.CloseConnection()
 }

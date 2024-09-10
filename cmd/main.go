@@ -452,7 +452,10 @@ func runClient(ctx *cli.Context) error {
 	paramDumpBatch := ctx.String("dumpbatch")
 
 	// Create client
-	c := datastreamer.NewClient(server, StSequencer)
+	c, err := datastreamer.NewClient(server, StSequencer)
+	if err != nil {
+		return err
+	}
 
 	// Set process entry callback function
 	if !sanityCheck {
@@ -475,7 +478,10 @@ func runClient(ctx *cli.Context) error {
 	}
 
 	// Start client (connect to the server)
-	c.Start()
+	err = c.Start()
+	if err != nil {
+		return err
+	}
 
 	// Query file header information
 	if queryHeader {
