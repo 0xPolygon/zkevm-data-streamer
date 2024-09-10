@@ -48,7 +48,7 @@ func TestRelay(t *testing.T) {
 
 	var relayPort uint16 = 6902
 	sr, err := datastreamer.NewRelay(fmt.Sprintf("localhost:%d", 6901), relayPort, 1, 137, datastreamer.StreamType(1),
-		fileName2, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, &config.Log)
+		fileName2, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, nil)
 	require.NoError(t, err)
 	err = sr.Start()
 	require.NoError(t, err)
