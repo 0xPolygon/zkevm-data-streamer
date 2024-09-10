@@ -1263,7 +1263,7 @@ func DecodeBinaryToResultEntry(b []byte) (ResultEntry, error) {
 }
 
 // PrintResultEntry prints result entry type
-func (e ResultEntry) PrintResultEntry() {
+func PrintResultEntry(e ResultEntry) {
 	log.Debug("--- RESULT ENTRY -------------------------")
 	log.Debugf("packetType: [%d]", e.packetType)
 	log.Debugf("length: [%d]", e.length)
