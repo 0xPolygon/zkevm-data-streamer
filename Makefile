@@ -57,3 +57,5 @@ help: ## Prints this help
 	| sort \
 	| awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 	
+generate-code-from-proto: ## Generates code from proto files
+	cd proto/datastream/v1 && protoc --proto_path=. --proto_path=../../include --go_out=../../../datastream --go-grpc_out=../../../datastream --go-grpc_opt=paths=source_relative --go_opt=paths=source_relative datastream.proto

@@ -294,43 +294,81 @@ Sequencer data stream service to stream L2 blocks and L2 txs
 
 List of events (entry types):
 
-### Start L2 Block
-- Entry type = 1
-- Entry data:  
->u64 batchNum  
->u64 blockL2Num  
->u64 timestamp  
->u32 deltaTimestamp  
->u32 L1InfoTreeIndex    
->u8[32] l1BlockHash  
->u8[32] globalExitRoot  
->u8[20] coinbase  
->u16 forkID  
->u32 chainID  
+### BatchStart:
+uint64 number
+BatchType type
+uint64 fork_id
+uint64 chain_id
+Debug debug
 
-### L2 TX
-- Entry type = 2
-- Entry data:  
->u8   gasPricePercentage  
->u8   isValid  // Intrinsic  
->u8[32] stateRoot  
->u32  encodedTXLength  
->u8[] encodedTX  
+### BatchEnd:
+uint64 number
+bytes local_exit_root
+bytes state_root
+Debug debug
 
-### End L2 Block
-- Entry type = 3
-- Entry data:
->u64  blockL2Num  
->u8[32] l2BlockHash  
->u8[32] stateRoot  
+### L2Block:
+uint64 number
+uint64 batch_number
+uint64 timestamp
+uint32 delta_timestamp
+uint64 min_timestamp
+bytes l1_blockhash
+uint32 l1_infotree_index
+bytes hash
+bytes state_root
+bytes global_exit_root
+bytes coinbase
+uint64 block_gas_limit
+bytes block_info_root
+Debug debug
 
-### Update GER
-- Entry type = 4
-- Entry data:  
->u64 batchNum  
->u64 timestamp  
->u8[32] globalExitRoot  
->u8[20] coinbase  
->u16 forkID  
->u32 chainID  
->u8[32]  stateRoot  
+### L2BlockEnd:
+uint64 number
+
+### Transaction:
+uint64 l2block_number
+uint64 index
+bool is_valid
+bytes encoded
+uint32 effective_gas_price_percentage
+bytes im_state_root
+Debug debug
+
+### UpdateGER:
+uint64 batch_number
+uint64 timestamp
+bytes global_exit_root
+bytes coinbase
+uint64 fork_id
+uint64 chain_id
+bytes state_root
+Debug debug
+
+### BookMark:
+BookmarkType type
+uint64 value
+
+### Debug:
+string message
+
+### BookmarkType:
+BOOKMARK_TYPE_UNSPECIFIED = 0;
+BOOKMARK_TYPE_BATCH = 1;
+BOOKMARK_TYPE_L2_BLOCK = 2;
+
+### EntryType:
+ENTRY_TYPE_UNSPECIFIED = 0;
+ENTRY_TYPE_BATCH_START = 1;
+ENTRY_TYPE_L2_BLOCK = 2;
+ENTRY_TYPE_TRANSACTION = 3;
+ENTRY_TYPE_BATCH_END = 4;
+ENTRY_TYPE_UPDATE_GER = 5;
+ENTRY_TYPE_L2_BLOCK_END = 6;
+
+### BatchType:
+BATCH_TYPE_UNSPECIFIED = 0;
+BATCH_TYPE_REGULAR = 1;
+BATCH_TYPE_FORCED = 2;
+BATCH_TYPE_INJECTED = 3;
+BATCH_TYPE_INVALID = 4;

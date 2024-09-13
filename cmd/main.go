@@ -12,20 +12,22 @@ import (
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/datastreamer"
+	"github.com/0xPolygonHermez/zkevm-data-streamer/datastream"
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
+	"google.golang.org/protobuf/proto"
 	"github.com/urfave/cli/v2"
 )
 
 const (
-	EtL2BlockStart datastreamer.EntryType = 1 // EtL2BlockStart entry type
-	EtL2Tx         datastreamer.EntryType = 2 // EtL2Tx entry type
-	EtL2BlockEnd   datastreamer.EntryType = 3 // EtL2BlockEnd entry type
-	EtUpdateGER    datastreamer.EntryType = 4 // EtUpdateGER entry type
-
 	StSequencer = 1 // StSequencer sequencer stream type
 
-	BookmarkL2Block byte = 0 // BookmarkL2Block bookmark type
-	BookmarkBatch   byte = 1 // BookmarkBatch bookmark type
+	BookmarkBatch   datastream.BookmarkType  = 1 // BookmarkBatch bookmark type
+	BookmarkL2Block datastream.BookmarkType  = 2 // BookmarkL2Block bookmark type
+
+	BatchTypeRegular  uint32 = 1;
+	BatchTypeForced   uint32 = 2;
+	BatchTypeInjected uint32 = 3;
+	BatchTypeInvalid  uint32 = 4;
 
 	streamerSystemID = 137
 	streamerVersion  = 1
@@ -37,12 +39,21 @@ const (
 
 var (
 	initSanityEntry    bool   = false
+	initSanityBatch    bool   = false
+	initSanityBatchEnd bool   = false
 	initSanityBlock    bool   = false
+	initSanityBlockEnd bool   = false
 	initSanityBookmark bool   = false
 	sanityEntry        uint64 = 0
+	sanityBatch        uint64 = 0
 	sanityBlock        uint64 = 0
-	sanityBookmark0    uint64 = 0
-	sanityBookmark1    uint64 = 0
+	sanityBlockEnd     uint64 = 0
+	sanityBatchEnd     uint64 = 0
+
+	sanityBookmarkL2Block uint64 = 0
+	sanityBookmarkBatch   uint64 = 0
+
+	sanityForkID       uint64 = 0
 	dumpBatchNumber    uint64 = 0
 	dumpBatchData      string
 	initDumpBatch      bool   = false
@@ -304,24 +315,24 @@ func runServer(ctx *cli.Context) error {
 				log.Errorf(">> App error! AddStreamBookmark: %v", err)
 			}
 			// 3.Block Start
-			entryBlockStart, err := s.AddStreamEntry(EtL2BlockStart, fakeDataBlockStart(init+n))
+			entryBlockStart, err := s.AddStreamEntry(datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK), fakeDataBlockStart(init+n))
 			if err != nil {
-				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockStart, err)
+				log.Errorf(">> App error! AddStreamEntry type %v: %v", datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK), err)
 				return
 			}
 			// 4.Tx
 			numTx := 1 // rand.Intn(20) + 1
 			for i := 1; i <= numTx; i++ {
-				_, err = s.AddStreamEntry(EtL2Tx, fakeDataTx())
+				_, err = s.AddStreamEntry(datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_TRANSACTION), fakeDataTx())
 				if err != nil {
-					log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2Tx, err)
+					log.Errorf(">> App error! AddStreamEntry type %v: %v", datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_TRANSACTION), err)
 					return
 				}
 			}
 			// 5.Block End
-			_, err = s.AddStreamEntry(EtL2BlockEnd, fakeDataBlockEnd(init+n))
+			_, err = s.AddStreamEntry(datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK_END), fakeDataBlockEnd(init+n))
 			if err != nil {
-				log.Errorf(">> App error! AddStreamEntry type %v: %v", EtL2BlockEnd, err)
+				log.Errorf(">> App error! AddStreamEntry type %v: %v", datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK_END), err)
 				return
 			}
 
@@ -355,10 +366,13 @@ func runServer(ctx *cli.Context) error {
 	return nil
 }
 
-func fakeBookmark(bookType byte, value uint64) []byte {
-	bookmark := []byte{bookType}
-	bookmark = binary.BigEndian.AppendUint64(bookmark, value)
-	return bookmark
+func fakeBookmark(bookType datastream.BookmarkType, value uint64) []byte {
+	bookmark := datastream.BookMark{Type: bookType}
+	b, err := proto.Marshal(&bookmark)
+	if err != nil {
+		log.Error("error marshalling fake bookmark. Ignoring it....")
+	}
+	return b
 }
 
 func fakeDataBlockStart(blockNum uint64) []byte {
@@ -622,16 +636,60 @@ func checkEntryBlockSanity(
 	}
 	sanityEntry++
 
-	// Sanity check for block sequence
-	if e.Type == EtL2BlockStart {
-		blockNum := binary.BigEndian.Uint64(e.Data[8:16])
+	switch e.Type {
+	case datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_BATCH_START): // TODO Review
+		batch := &datastream.BatchStart{}
+		err := proto.Unmarshal(e.Data, batch)
+		if err != nil {
+			log.Error("error decoding batchStart. Error: ", err)
+			return err
+		}
+		batchNum := batch.Number
+		// Check forkID
+		if sanityForkID > batch.ForkId {
+			log.Warnf("(X) SANITY CHECK failed (%d): Wrong ForkID for batch %d. ForkID received[%d] | ForkID expected[%d]",
+				e.Number, batchNum, batch.ForkId, sanityForkID)
+		}
+		// Check batch number
+		if sanityBatch > 0 {
+			if batchNum != sanityBatch {
+				if batchNum < sanityBatch {
+					log.Warnf("(X) SANITY CHECK failed (%d): REPEATED batch? Received[%d] | Batch expected[%d]",
+						e.Number, batchNum, sanityBatch)
+				} else {
+					log.Warnf("(X) SANITY CHECK failed (%d): GAP batch? Received[%d] | Batch expected[%d]",
+						e.Number, batchNum, sanityBatch)
+				}
+				sanityBatch = batchNum
+			}
+		} else {
+			if batchNum != 0 {
+				if initSanityBatch {
+					log.Warnf("(X) SANITY CHECK failed (%d): Batch received[%d] | Batch expected[0]", e.Number, batchNum)
+					sanityBatch = 0
+				} else {
+					log.Infof("SANITY CHECK note (%d): First Batch received[%d]", e.Number, batchNum)
+					sanityBatch = batchNum
+				}
+				initSanityBatch = true
+			}
+		}
+		sanityBatch++
+	case datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK):
+		l2Block := &datastream.L2Block{}
+		err := proto.Unmarshal(e.Data, l2Block)
+		if err != nil {
+			log.Error("error decoding l2 block. Error: ", err)
+			return err
+		}
+		blockNum := l2Block.Number
 		if sanityBlock > 0 {
 			if blockNum != sanityBlock {
 				if blockNum < sanityBlock {
-					log.Infof("(X) SANITY CHECK failed (%d): REPEATED blocks? Received[%d] | Block expected[%d]",
+					log.Warnf("(X) SANITY CHECK failed (%d): REPEATED blocks? Received[%d] | Block expected[%d]",
 						e.Number, blockNum, sanityBlock)
 				} else {
-					log.Infof("(X) SANITY CHECK failed (%d): GAP blocks? Received[%d] | Block expected[%d]",
+					log.Warnf("(X) SANITY CHECK failed (%d): GAP blocks? Received[%d] | Block expected[%d]",
 						e.Number, blockNum, sanityBlock)
 				}
 				sanityBlock = blockNum
@@ -639,7 +697,7 @@ func checkEntryBlockSanity(
 		} else {
 			if blockNum != 0 {
 				if initSanityBlock {
-					log.Infof("(X) SANITY CHECK failed (%d): Block received[%d] | Block expected[0]", e.Number, blockNum)
+					log.Warnf("(X) SANITY CHECK failed (%d): Block received[%d] | Block expected[0]", e.Number, blockNum)
 					sanityBlock = 0
 				} else {
 					log.Infof("SANITY CHECK note (%d): First Block received[%d]", e.Number, blockNum)
@@ -649,75 +707,168 @@ func checkEntryBlockSanity(
 			}
 		}
 		sanityBlock++
-	}
-
-	// Sanity check for bookmarks
-	if e.Type == datastreamer.EtBookmark {
-		bookmarkType := e.Data[0]
-		bookmarkNum := binary.BigEndian.Uint64(e.Data[1:9])
-
-		switch bookmarkType {
-		case BookmarkL2Block:
-			if sanityBookmark0 > 0 {
-				if bookmarkNum != sanityBookmark0 {
-					if bookmarkNum < sanityBookmark0 {
-						log.Infof("(X) SANITY CHECK failed (%d): REPEATED L2block bookmarks? Received[%d] | Bookmark expected[%d]",
-							e.Number, bookmarkNum, sanityBookmark0)
-					} else {
-						log.Infof("(X) SANITY CHECK failed (%d): GAP L2block bookmarks? Received[%d] | Bookmark expected[%d]",
-							e.Number, bookmarkNum, sanityBookmark0)
-					}
-					sanityBookmark0 = bookmarkNum
+	case datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_TRANSACTION):
+		dsTx := &datastream.Transaction{}
+		err := proto.Unmarshal(e.Data, dsTx)
+		if err != nil {
+			log.Error("error decoding transaction. Error: ", err)
+			return err
+		}
+		// TODO How to validate txs?
+	case datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_BATCH_END): // TODO Review
+		batch := &datastream.BatchEnd{}
+		err := proto.Unmarshal(e.Data, batch)
+		if err != nil {
+			log.Error("error decoding batchEnd. Error: ", err)
+			return err
+		}
+		batchNum := batch.Number
+		//Check Open batch
+		if sanityBatch-1 != sanityBatchEnd {
+			log.Warnf("(X) SANITY CHECK failed (%d): BatchEnd but not closed? lastBatchOpened[%d] Received[%d] | BatchEnd expected[%d]",
+				e.Number, sanityBatch-1, batchNum, sanityBatchEnd)
+		}
+		// Check batch number
+		if sanityBatchEnd > 0 {
+			if batchNum != sanityBatchEnd {
+				if batchNum < sanityBatchEnd {
+					log.Warnf("(X) SANITY CHECK failed (%d): REPEATED batchEnd? Received[%d] | BatchEnd expected[%d]",
+						e.Number, batchNum, sanityBatchEnd)
+				} else {
+					log.Warnf("(X) SANITY CHECK failed (%d): GAP batchEnd? Received[%d] | BatchEnd expected[%d]",
+						e.Number, batchNum, sanityBatchEnd)
 				}
-			} else {
-				if bookmarkNum != 0 {
-					if initSanityBookmark {
-						log.Infof("(X) SANITY CHECK failed (%d): L2block Bookmark received[%d] | Bookmark expected[0]",
-							e.Number, bookmarkNum)
-						sanityBookmark0 = 0
-					} else {
-						log.Infof("SANITY CHECK note (%d): First L2block Bookmark received[%d]", e.Number, bookmarkNum)
-						sanityBookmark0 = bookmarkNum
-					}
-					initSanityBookmark = true
-				}
+				sanityBatchEnd = batchNum
 			}
-			sanityBookmark0++
+		} else {
+			if batchNum != 0 {
+				if initSanityBatchEnd {
+					log.Warnf("(X) SANITY CHECK failed (%d): BatchEnd received[%d] | BatchEnd expected[0]", e.Number, batchNum)
+					sanityBatchEnd = 0
+				} else {
+					log.Infof("SANITY CHECK note (%d): First BatchEnd received[%d]", e.Number, batchNum)
+					sanityBatchEnd = batchNum
+				}
+				initSanityBatchEnd = true
+			}
+		}
+		sanityBatchEnd++
+	case datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_UPDATE_GER):
+		updateGer := &datastream.UpdateGER{}
+		err := proto.Unmarshal(e.Data, updateGer)
+		if err != nil {
+			log.Error("error decoding updateGER. Error: ", err)
+			return err
+		}
+		// TODO
+	case datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK_END): // TODO Review
+		l2BlockEnd := &datastream.L2BlockEnd{}
+		err := proto.Unmarshal(e.Data, l2BlockEnd)
+		if err != nil {
+			log.Error("error decoding l2BlockEnd. Error: ", err)
+			return err
+		}
+		blockNum := l2BlockEnd.Number
+		//Check Open l2 block
+		if sanityBlock-1 != sanityBlockEnd {
+			log.Warnf("(X) SANITY CHECK failed (%d): BlockEnd but not closed? lastBlockOpened[%d] Received[%d] | BlockEnd expected[%d]",
+				e.Number, sanityBlock-1, blockNum, sanityBlockEnd)
+		}
+		// Check l2 block end number
+		if sanityBlockEnd > 0 {
+			if blockNum != sanityBlockEnd {
+				if blockNum < sanityBlockEnd {
+					log.Warnf("(X) SANITY CHECK failed (%d): REPEATED blocks end? Received[%d] | Block expected[%d]",
+						e.Number, blockNum, sanityBlockEnd)
+				} else {
+					log.Warnf("(X) SANITY CHECK failed (%d): GAP blocks end? Received[%d] | Block expected[%d]",
+						e.Number, blockNum, sanityBlockEnd)
+				}
+				sanityBlockEnd = blockNum
+			}
+		} else {
+			if blockNum != 0 {
+				if initSanityBlockEnd {
+					log.Warnf("(X) SANITY CHECK failed (%d): Block end received[%d] | Block expected[0]", e.Number, blockNum)
+					sanityBlockEnd = 0
+				} else {
+					log.Infof("SANITY CHECK note (%d): First Block end received[%d]", e.Number, blockNum)
+					sanityBlockEnd = blockNum
+				}
+				initSanityBlockEnd = true
+			}
+		}
+		sanityBlockEnd++
+	case datastreamer.EtBookmark: // Sanity check for bookmarks
+		bookmark := &datastream.BookMark{}
+		err := proto.Unmarshal(e.Data, bookmark)
+		if err != nil {
+			log.Error("error decoding bookmark. Error: ", err)
+			return err
+		}
+		bookmarkNum := bookmark.Value
 
+		switch bookmark.Type {
 		case BookmarkBatch:
-			if sanityBookmark1 > 0 {
-				if bookmarkNum != sanityBookmark1 {
-					if bookmarkNum < sanityBookmark1 {
-						log.Infof("(X) SANITY CHECK failed (%d): REPEATED Batch bookmarks? Received[%d] | Bookmark expected[%d]",
-							e.Number, bookmarkNum, sanityBookmark1)
+			if sanityBookmarkBatch > 0 {
+				if bookmarkNum != sanityBookmarkBatch {
+					if bookmarkNum < sanityBookmarkBatch {
+						log.Warnf("(X) SANITY CHECK failed (%d): REPEATED Batch bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmarkBatch)
 					} else {
-						log.Infof("(X) SANITY CHECK failed (%d): GAP Batch bookmarks? Received[%d] | Bookmark expected[%d]",
-							e.Number, bookmarkNum, sanityBookmark1)
+						log.Warnf("(X) SANITY CHECK failed (%d): GAP Batch bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmarkBatch)
 					}
-					sanityBookmark1 = bookmarkNum
+					sanityBookmarkBatch = bookmarkNum
 				}
 			} else {
 				if bookmarkNum != 0 {
 					if initSanityBookmark {
-						log.Infof("(X) SANITY CHECK failed (%d): Batch Bookmark received[%d] | Bookmark expected[0]",
+						log.Warnf("(X) SANITY CHECK failed (%d): Batch Bookmark received[%d] | Bookmark expected[0]",
 							e.Number, bookmarkNum)
-						sanityBookmark1 = 0
+						sanityBookmarkBatch = 0
 					} else {
 						log.Infof("SANITY CHECK note (%d): First Batch Bookmark received[%d]", e.Number, bookmarkNum)
-						sanityBookmark1 = bookmarkNum
+						sanityBookmarkBatch = bookmarkNum
 					}
 					initSanityBookmark = true
 				}
 			}
-			sanityBookmark1++
+			sanityBookmarkBatch++
+		case BookmarkL2Block:
+			if sanityBookmarkL2Block > 0 {
+				if bookmarkNum != sanityBookmarkL2Block {
+					if bookmarkNum < sanityBookmarkL2Block {
+						log.Warnf("(X) SANITY CHECK failed (%d): REPEATED L2block bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmarkL2Block)
+					} else {
+						log.Warnf("(X) SANITY CHECK failed (%d): GAP L2block bookmarks? Received[%d] | Bookmark expected[%d]",
+							e.Number, bookmarkNum, sanityBookmarkL2Block)
+					}
+					sanityBookmarkL2Block = bookmarkNum
+				}
+			} else {
+				if bookmarkNum != 0 {
+					if initSanityBookmark {
+						log.Warnf("(X) SANITY CHECK failed (%d): L2block Bookmark received[%d] | Bookmark expected[0]",
+							e.Number, bookmarkNum)
+						sanityBookmarkL2Block = 0
+					} else {
+						log.Infof("SANITY CHECK note (%d): First L2block Bookmark received[%d]", e.Number, bookmarkNum)
+						sanityBookmarkL2Block = bookmarkNum
+					}
+					initSanityBookmark = true
+				}
+			}
+			sanityBookmarkL2Block++
 		}
 	}
 
 	// Sanity check end condition
 	if e.Number+1 >= c.GetTotalEntries() {
-		log.Infof("SANITY CHECK finished! From entry [%d] to entry [%d]. Latest L2block[%d], Bookmark0[%d], Bookmark1[%d]",
-			c.GetFromStream(), c.GetTotalEntries()-1, sanityBlock-1, sanityBookmark0-1, sanityBookmark1-1)
-		return errors.New("sanity check finished")
+		log.Infof("SANITY CHECK finished! From entry [%d] to entry [%d]. Latest L2block[%d], sanityBookmarkL2Block[%d], sanityBookmarkBatch[%d]",
+			c.GetFromStream(), c.GetTotalEntries()-1, sanityBlock-1, sanityBookmarkL2Block-1, sanityBookmarkBatch-1)
+		os.Exit(0)
 	}
 
 	return nil
@@ -735,12 +886,12 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 		Data       string `json:"batchData"`
 	}
 
-	if e.Type != EtL2BlockStart && e.Type != EtL2Tx && e.Type != EtL2BlockEnd {
+	if e.Type != datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK) && e.Type != datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_TRANSACTION) && e.Type != datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK_END) {
 		return nil
 	}
 
 	// L2 block start
-	if e.Type == EtL2BlockStart {
+	if e.Type == datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK) {
 		batchNumber := binary.BigEndian.Uint64(e.Data[0:8])
 		switch {
 		case batchNumber < dumpBatchNumber:
@@ -784,7 +935,7 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 			}
 			dumpBlockLast = blockNum
 		}
-	} else if e.Type == EtL2Tx && initDumpBatch {
+	} else if e.Type == datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_TRANSACTION) && initDumpBatch {
 		dumpTotalTx++
 	}
 
