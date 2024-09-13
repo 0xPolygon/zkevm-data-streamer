@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -508,7 +507,7 @@ func runClient(ctx *cli.Context) error {
 	if bookmarkType < 0 || bookmarkType > 255 {
 		return errors.New("bad bookmarktype parameter, must be between 0 and 255")
 	}
-	bookType := byte(bookmarkType)
+	bookType := datastream.BookmarkType(bookmarkType)
 	paramDumpBatch := ctx.String("dumpbatch")
 
 	// Create client
@@ -577,8 +576,15 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		qBook := []byte{bookType}
-		entry, err := c.ExecCommandGetBookmark(binary.BigEndian.AppendUint64(qBook, uint64(qBookmark)))
+		bookmark := datastream.BookMark{
+			Type:  bookType,
+			Value: uint64(qBookmark),
+		}
+		qBook, err := proto.Marshal(&bookmark)
+		if err != nil {
+			log.Error("error marshalling fake bookmark. Ignoring it....")
+		}
+		entry, err := c.ExecCommandGetBookmark(qBook)
 		if err != nil {
 			log.Infof("Error: %v", err)
 		} else {
@@ -600,8 +606,15 @@ func runClient(ctx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		bookmark := []byte{bookType}
-		err = c.ExecCommandStartBookmark(binary.BigEndian.AppendUint64(bookmark, uint64(fromBookNum)))
+		bookmark := datastream.BookMark{
+			Type:  bookType,
+			Value: uint64(fromBookNum),
+		}
+		qBook, err := proto.Marshal(&bookmark)
+		if err != nil {
+			log.Error("error marshalling fake bookmark. Ignoring it....")
+		}
+		err = c.ExecCommandStartBookmark(qBook)
 		if err != nil {
 			return err
 		}
@@ -963,7 +976,13 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 
 	// L2 block start
 	if e.Type == datastreamer.EntryType(datastream.EntryType_ENTRY_TYPE_L2_BLOCK) {
-		batchNumber := binary.BigEndian.Uint64(e.Data[0:8])
+		l2Block := &datastream.L2Block{}
+		err := proto.Unmarshal(e.Data, l2Block)
+		if err != nil {
+			log.Error("error decoding l2 block. Error: ", err)
+			return err
+		}
+		batchNumber := l2Block.BatchNumber
 		switch {
 		case batchNumber < dumpBatchNumber:
 			return nil
@@ -1000,7 +1019,7 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 		case batchNumber == dumpBatchNumber:
 			initDumpBatch = true
 
-			blockNum := binary.BigEndian.Uint64(e.Data[8:16])
+			blockNum := l2Block.Number
 			if dumpBlockFirst == 0 {
 				dumpBlockFirst = blockNum
 			}
