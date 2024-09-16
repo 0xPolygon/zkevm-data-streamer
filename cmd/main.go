@@ -1014,7 +1014,7 @@ func doDumpBatchData(e *datastreamer.FileEntry, c *datastreamer.StreamClient, s 
 				return errors.New("writing dump file")
 			}
 
-			return errors.New("dump batch finished")
+			os.Exit(0)
 
 		case batchNumber == dumpBatchNumber:
 			initDumpBatch = true
