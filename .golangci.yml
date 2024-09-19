@@ -33,6 +33,8 @@ linters:
   - godox # Godox is a linter for TODOs and FIXMEs left in the code
 
 linters-settings:
+  dupl:
+    threshold: 300
   revive:
     rules:
     - name: exported
