@@ -215,7 +215,7 @@ func (f *StreamFile) initializeFile() error {
 	for i := 1; i <= initPages; i++ {
 		err = f.createPage(f.pageSize)
 		if err != nil {
-			log.Error("Eror creating page")
+			log.Error("Error creating page")
 			return err
 		}
 	}
@@ -580,7 +580,6 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 	f.header.TotalEntries++
 	f.mutexHeader.Unlock()
 
-	// printHeaderEntry(f.header)
 	return nil
 }
 
@@ -656,7 +655,7 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 func (f *StreamFile) iteratorFrom(entryNum uint64, readOnly bool) (*iteratorFile, error) {
 	// Check starting entry number
 	if entryNum >= f.writtenHead.TotalEntries {
-		log.Infof("Invalid starting entry number for iterator")
+		log.Error("Invalid starting entry number for iterator")
 		return nil, ErrInvalidEntryNumber
 	}
 
