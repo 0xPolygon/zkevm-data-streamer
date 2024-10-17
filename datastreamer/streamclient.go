@@ -87,7 +87,12 @@ func (c *StreamClient) Start() error {
 	go c.readEntries()
 
 	// Goroutine to consume streaming entries
-	go c.getStreaming()
+	go func() {
+		err := c.getStreaming()
+		if err != nil {
+			log.Errorf("%s Error while getting streaming: %v", c.ID, err)
+		}
+	}()
 
 	// Flag stared
 	c.started = true
@@ -103,7 +108,7 @@ func (c *StreamClient) connectServer() bool {
 	for !c.connected {
 		c.conn, err = net.Dial("tcp", c.server)
 		if err != nil {
-			log.Infof("Error connecting to server %s: %v", c.server, err)
+			log.Errorf("Error connecting to server %s: %v", c.server, err)
 			time.Sleep(defaultTimeout)
 			continue
 		} else {
@@ -177,7 +182,7 @@ func (c *StreamClient) ExecCommandGetBookmark(fromBookmark []byte) (FileEntry, e
 // execCommand executes a valid client TCP command with deferred command result possibility
 func (c *StreamClient) execCommand(cmd Command, deferredResult bool,
 	fromEntry uint64, fromBookmark []byte) (HeaderEntry, FileEntry, error) {
-	log.Infof("%s Executing command %d[%s]...", c.ID, cmd, StrCommand[cmd])
+	log.Debugf("%s Executing command %d[%s]...", c.ID, cmd, StrCommand[cmd])
 	header := HeaderEntry{}
 	entry := FileEntry{}
 
@@ -207,14 +212,14 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool,
 	// Send the command parameters
 	switch cmd {
 	case CmdStart:
-		log.Infof("%s ...from entry %d", c.ID, fromEntry)
+		log.Debugf("%s ...from entry %d", c.ID, fromEntry)
 		// Send starting/from entry number
 		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {
 			return header, entry, err
 		}
 	case CmdStartBookmark:
-		log.Infof("%s ...from bookmark [%v]", c.ID, fromBookmark)
+		log.Debugf("%s ...from bookmark [%v]", c.ID, fromBookmark)
 		// Send starting/from bookmark length
 		err = writeFullUint32(uint32(len(fromBookmark)), c.conn)
 		if err != nil {
@@ -226,14 +231,14 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool,
 			return header, entry, err
 		}
 	case CmdEntry:
-		log.Infof("%s ...get entry %d", c.ID, fromEntry)
+		log.Debugf("%s ...get entry %d", c.ID, fromEntry)
 		// Send entry to retrieve
 		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {
 			return header, entry, err
 		}
 	case CmdBookmark:
-		log.Infof("%s ...get bookmark [%v]", c.ID, fromBookmark)
+		log.Debugf("%s ...get bookmark [%v]", c.ID, fromBookmark)
 		// Send bookmark length
 		err = writeFullUint32(uint32(len(fromBookmark)), c.conn)
 		if err != nil {
@@ -529,14 +534,14 @@ func (c *StreamClient) readEntries() {
 func (c *StreamClient) getResult(cmd Command) ResultEntry {
 	// Get result entry
 	r := <-c.results
-	log.Infof("%s Result %d[%s] received for command %d[%s]", c.ID, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
+	log.Debugf("%s Result %d[%s] received for command %d[%s]", c.ID, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
 	return r
 }
 
 // getHeader consumes a header entry
 func (c *StreamClient) getHeader() HeaderEntry {
 	h := <-c.headers
-	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d], Version[%d], SystemID[%d]",
+	log.Debugf("%s Header received info: TotalEntries[%d], TotalLength[%d], Version[%d], SystemID[%d]",
 		c.ID, h.TotalEntries, h.TotalLength, h.Version, h.SystemID)
 	return h
 }
@@ -544,12 +549,12 @@ func (c *StreamClient) getHeader() HeaderEntry {
 // getEntry consumes a entry from commands response
 func (c *StreamClient) getEntry() FileEntry {
 	e := <-c.entryRsp
-	log.Infof("%s Entry received info: Number[%d]", c.ID, e.Number)
+	log.Debugf("%s Entry received info: Number[%d]", c.ID, e.Number)
 	return e
 }
 
 // getStreaming consumes streaming data entries
-func (c *StreamClient) getStreaming() {
+func (c *StreamClient) getStreaming() error {
 	for {
 		e := <-c.entries
 		c.nextEntry = e.Number + 1
@@ -557,7 +562,8 @@ func (c *StreamClient) getStreaming() {
 		// Process the data entry
 		err := c.processEntry(&e, c, c.relayServer)
 		if err != nil {
-			log.Fatalf("%s Processing entry %d: %s. HALTED!", c.ID, e.Number, err.Error())
+			log.Errorf("%s Processing entry %d: %s. Exiting getStream function", c.ID, e.Number, err.Error())
+			return err
 		}
 	}
 }
@@ -597,6 +603,6 @@ func (c *StreamClient) IsStarted() bool {
 // PrintReceivedEntry prints received entry (default callback function)
 func PrintReceivedEntry(e *FileEntry, c *StreamClient, s *StreamServer) error {
 	// Log data entry fields
-	log.Infof("Data entry(%s): %d | %d | %d | %d", c.ID, e.Number, e.Length, e.Type, len(e.Data))
+	log.Debugf("Data entry(%s): %d | %d | %d | %d", c.ID, e.Number, e.Length, e.Type, len(e.Data))
 	return nil
 }
