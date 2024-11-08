@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,15 +18,20 @@ import (
 
 const (
 	StSequencer = 1 // StSequencer sequencer stream type
+
+	streamerSystemID = 137
+	streamerVersion  = 1
 )
 
 type config struct {
-	Server       string
-	Port         uint64
-	File         string
-	WriteTimeout time.Duration
-	Log          string
-	DeleteData   bool
+	Server            string
+	Port              uint64
+	File              string
+	WriteTimeout      time.Duration
+	InactivityTimeout time.Duration
+	Log               string
+
+	DeleteData bool // For X Layer
 }
 
 func main() {
@@ -62,6 +68,14 @@ func main() {
 			Name:  "log",
 			Usage: "log level (debug|info|warn|error)",
 		},
+		&cli.Uint64Flag{
+			Name:  "writetimeout",
+			Usage: "timeout for write operations on client connections in ms (0=no timeout)",
+		},
+		&cli.Uint64Flag{
+			Name:  "inactivitytimeout",
+			Usage: "timeout to kill an inactive client connection in seconds (0=no timeout)",
+		},
 	}
 	app.Action = run
 
@@ -75,17 +89,18 @@ func main() {
 
 // defaultConfig parses the default configuration values
 func defaultConfig() (*config, error) {
-	cfg := config{
-		Server:       "127.0.0.1:6900",
-		Port:         7900, // nolint:gomnd
-		File:         "datarelay.bin",
-		WriteTimeout: time.Duration(3 * time.Second), // nolint:gomnd
-		Log:          "info",
-		DeleteData:   false,
-	}
-
 	viper.SetConfigType("toml")
-	return &cfg, nil
+
+	return &config{
+		Server:            "127.0.0.1:6900",
+		Port:              7900, //nolint:mnd
+		File:              "datarelay.bin",
+		WriteTimeout:      3 * time.Second,   //nolint:mnd
+		InactivityTimeout: 120 * time.Second, //nolint:mnd
+		Log:               "info",
+
+		DeleteData: false, // For X Layer
+	}, nil
 }
 
 // loadConfig loads the configuration
@@ -114,18 +129,20 @@ func loadConfig(ctx *cli.Context) (*config, error) {
 
 	err = viper.ReadInConfig()
 	if err != nil {
-		_, ok := err.(viper.ConfigFileNotFoundError)
-		if ok {
-			log.Infof("config file not found")
+		var configErr *viper.ConfigFileNotFoundError
+		if errors.As(err, &configErr) {
+			log.Infof("%w", configErr)
 		} else {
-			log.Infof("error reading config file: ", err)
+			log.Infof("error reading config file: %w", err)
 			return nil, err
 		}
 	}
 
 	decodeHooks := []viper.DecoderConfigOption{
 		// this allows arrays to be decoded from env var separated by ",", example: MY_VAR="value1,value2,value3"
-		viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(mapstructure.TextUnmarshallerHookFunc(), mapstructure.StringToSliceHookFunc(","))),
+		viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
+			mapstructure.TextUnmarshallerHookFunc(),
+			mapstructure.StringToSliceHookFunc(","))),
 	}
 
 	err = viper.Unmarshal(&cfg, decodeHooks...)
@@ -165,6 +182,16 @@ func run(ctx *cli.Context) error {
 		cfg.Log = logLevel
 	}
 
+	writeTimeout := ctx.Uint64("writetimeout")
+	if writeTimeout != 0 {
+		cfg.WriteTimeout = time.Duration(writeTimeout * uint64(time.Second))
+	}
+
+	inactivityTimeout := ctx.Uint64("inactivitytimeout")
+	if inactivityTimeout != 0 {
+		cfg.InactivityTimeout = time.Duration(inactivityTimeout * uint64(time.Second))
+	}
+
 	// Set log level
 	log.Init(log.Config{
 		Environment: "development",
@@ -182,7 +209,8 @@ func run(ctx *cli.Context) error {
 	}
 
 	// Create relay server
-	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), 1, 137, StSequencer, cfg.File, cfg.WriteTimeout, nil) // nolint:gomnd
+	r, err := datastreamer.NewRelay(cfg.Server, uint16(cfg.Port), streamerVersion, streamerSystemID,
+		StSequencer, cfg.File, cfg.WriteTimeout, cfg.InactivityTimeout, 5*time.Second, nil) //nolint:mnd
 	if err != nil {
 		log.Errorf(">> Relay server: NewRelay error! (%v)", err)
 		return err

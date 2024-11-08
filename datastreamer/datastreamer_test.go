@@ -78,7 +78,7 @@ func (t TestEntry) Encode() []byte {
 	bytes := make([]byte, 0)
 	bytes = binary.BigEndian.AppendUint64(bytes, t.FieldA)
 	bytes = append(bytes, t.FieldB[:]...)
-	bytes = append(bytes, t.FieldC[:]...)
+	bytes = append(bytes, t.FieldC...)
 	return bytes
 }
 
@@ -102,7 +102,7 @@ var (
 			Level:       "debug",
 			Outputs:     []string{"stdout"},
 		},
-		WriteTimeout: time.Duration(3 * time.Second),
+		WriteTimeout: 3 * time.Second,
 	}
 	leveldb      = config.Filename[0:strings.IndexRune(config.Filename, '.')] + ".db"
 	streamServer *datastreamer.StreamServer
@@ -201,7 +201,8 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	streamServer, err = datastreamer.NewServer(config.Port, 1, 137, streamType, config.Filename, config.WriteTimeout, &config.Log)
+	streamServer, err = datastreamer.NewServer(config.Port, 1, 137, streamType,
+		config.Filename, config.WriteTimeout, config.InactivityTimeout, 5*time.Second, &config.Log)
 	if err != nil {
 		panic(err)
 	}
@@ -239,8 +240,20 @@ func TestServer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), entryNumber)
 
+	// Case: Start atomic operation with atomic operation in progress -> FAIL
+	_ = streamServer.StartAtomicOp()
+	err = streamServer.StartAtomicOp()
+	_ = streamServer.CommitAtomicOp()
+	require.EqualError(t, datastreamer.ErrStartAtomicOpNotAllowed, err.Error())
+
+	// Case: Commit atomic operation without starting atomic operation -> FAIL
 	err = streamServer.CommitAtomicOp()
-	require.NoError(t, err)
+	require.EqualError(t, datastreamer.ErrCommitNotAllowed, err.Error())
+
+	// Case: AddStreamBookmark without atomic operation in progress -> FAIL
+	entryNumber, err = streamServer.AddStreamBookmark(testBookmark.Encode())
+	require.Equal(t, uint64(0), entryNumber)
+	require.EqualError(t, datastreamer.ErrAddEntryNotAllowed, err.Error())
 
 	// Check get data between 2 bookmarks
 	data, err := streamServer.GetDataBetweenBookmarks(testBookmark.Encode(), testBookmark2.Encode())
@@ -269,6 +282,7 @@ func TestServer(t *testing.T) {
 	// Case: Get entry data of an entry number that doesn't exist -> FAIL
 	entry, err = streamServer.GetEntry(3)
 	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+	require.Equal(t, datastreamer.FileEntry{}, entry)
 
 	// Case: Get entry number pointed by bookmark that exists -> OK
 	entryNumber, err = streamServer.GetBookmark(testBookmark.Encode())
@@ -354,9 +368,14 @@ func TestServer(t *testing.T) {
 	err = streamServer.RollbackAtomicOp()
 	require.NoError(t, err)
 
+	// Case: Rollback operation without starting atomic operation -> FAIL
+	err = streamServer.RollbackAtomicOp()
+	require.EqualError(t, datastreamer.ErrRollbackNotAllowed, err.Error())
+
 	// Case: Get entry data of previous rollback entry number (doesn't exist) -> FAIL
 	entry, err = streamServer.GetEntry(7)
 	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+	require.Equal(t, datastreamer.FileEntry{}, entry)
 
 	// Case: Truncate file with atomic operation in progress -> FAIL
 	err = streamServer.StartAtomicOp()
@@ -379,8 +398,10 @@ func TestServer(t *testing.T) {
 	// Case: Get entries included in previous file truncate (don't exist) -> FAIL
 	entry, err = streamServer.GetEntry(6)
 	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+	require.Equal(t, datastreamer.FileEntry{}, entry)
 	entry, err = streamServer.GetEntry(5)
 	require.EqualError(t, datastreamer.ErrInvalidEntryNumber, err.Error())
+	require.Equal(t, datastreamer.FileEntry{}, entry)
 
 	// Case: Get entry not included in previous file truncate -> OK
 	entry, err = streamServer.GetEntry(4)
@@ -394,10 +415,11 @@ func TestServer(t *testing.T) {
 	entryLength := len(testEntries[4].Encode()) + datastreamer.FixedSizeFileEntry
 	bytesAvailable := datastreamer.PageDataSize - (streamServer.GetHeader().TotalLength - datastreamer.PageHeaderSize)
 	numEntries := bytesAvailable / uint64(entryLength)
-	log.Debugf(">>> totalLength: %d | bytesAvailable: %d | entryLength: %d | numEntries: %d", streamServer.GetHeader().TotalLength, bytesAvailable, entryLength, numEntries)
+	log.Debugf(">>> totalLength: %d | bytesAvailable: %d | entryLength: %d | numEntries: %d",
+		streamServer.GetHeader().TotalLength, bytesAvailable, entryLength, numEntries)
 
 	lastEntry := entryNumber - 2 // 2 entries truncated
-	lastEntry = lastEntry - 1
+	lastEntry--
 	err = streamServer.StartAtomicOp()
 	require.NoError(t, err)
 
@@ -405,15 +427,17 @@ func TestServer(t *testing.T) {
 		lastEntry++
 		entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[4].Encode())
 		require.NoError(t, err)
-		require.Equal(t, uint64(lastEntry), entryNumber)
+		require.Equal(t, lastEntry, entryNumber)
 	}
 
 	err = streamServer.CommitAtomicOp()
 	require.NoError(t, err)
 
-	bytesAvailable = datastreamer.PageDataSize - ((streamServer.GetHeader().TotalLength - datastreamer.PageHeaderSize) % datastreamer.PageDataSize)
+	bytesAvailable = datastreamer.PageDataSize -
+		((streamServer.GetHeader().TotalLength - datastreamer.PageHeaderSize) % datastreamer.PageDataSize)
 	numEntries = bytesAvailable / uint64(entryLength)
-	log.Debugf(">>> totalLength: %d | bytesAvailable: %d | entryLength: %d | numEntries: %d", streamServer.GetHeader().TotalLength, bytesAvailable, entryLength, numEntries)
+	log.Debugf(">>> totalLength: %d | bytesAvailable: %d | entryLength: %d | numEntries: %d",
+		streamServer.GetHeader().TotalLength, bytesAvailable, entryLength, numEntries)
 
 	// Case: Get latest entry stored in the first data page -> OK
 	entry, err = streamServer.GetEntry(entryNumber)
@@ -427,7 +451,7 @@ func TestServer(t *testing.T) {
 
 	entryNumber, err = streamServer.AddStreamEntry(entryType1, testEntries[4].Encode())
 	require.NoError(t, err)
-	require.Equal(t, uint64(lastEntry+1), entryNumber)
+	require.Equal(t, lastEntry+1, entryNumber)
 
 	err = streamServer.CommitAtomicOp()
 	require.NoError(t, err)
