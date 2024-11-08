@@ -199,13 +199,14 @@ func run(ctx *cli.Context) error {
 		Outputs:     []string{"stdout"},
 	})
 
-	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s] delete data[%v]", cfg.Port, cfg.File, cfg.Server, cfg.Log, cfg.DeleteData)
+	log.Infof(">> Relay server started: port[%d] file[%s] server[%s] log[%s] delete data[%v]",
+		cfg.Port, cfg.File, cfg.Server, cfg.Log, cfg.DeleteData)
 
 	if cfg.DeleteData {
 		log.Infof(">> Warning Deleting data file: %s", cfg.File)
 		deleteDataFile(cfg.File)
 		log.Infof(">> Data file deleted: %s succeeded!", cfg.File)
-		time.Sleep(1 * time.Second) // nolint:gomnd
+		time.Sleep(1 * time.Second) //nolint:gomnd
 	}
 
 	// Create relay server
