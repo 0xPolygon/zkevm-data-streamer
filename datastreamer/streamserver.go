@@ -115,8 +115,9 @@ type StreamServer struct {
 	// Time interval to check for client connections that have reached
 	// the inactivity timeout and kill them
 	inactivityCheckInterval time.Duration
-	maxConnections          uint32        
-	started                 bool // Flag server started
+	// maxConnections specifies the max number of connections open. If it is set to 0, the limit is disabled.
+	maxConnections uint32
+	started        bool // Flag server started
 
 	version      uint8
 	systemID     uint64
