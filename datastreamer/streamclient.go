@@ -2,6 +2,7 @@ package datastreamer
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"time"
@@ -14,6 +15,8 @@ const (
 	headersBuffer  = 32  // Buffers for the headers channel
 	entriesBuffer  = 128 // Buffers for the entries channel
 	entryRspBuffer = 32  // Buffers for data command response
+
+	defaultTimeout = 5 * time.Second
 )
 
 // ProcessEntryFunc type of the callback function to process the received entry
@@ -24,7 +27,7 @@ type StreamClient struct {
 	server       string // Server address to connect IP:port
 	streamType   StreamType
 	conn         net.Conn
-	Id           string // Client id
+	ID           string // Client id
 	started      bool   // Flag client started
 	connected    bool   // Flag client connected to server
 	streaming    bool   // Flag client streaming started
@@ -47,7 +50,7 @@ func NewClient(server string, streamType StreamType) (*StreamClient, error) {
 	c := StreamClient{
 		server:       server,
 		streamType:   streamType,
-		Id:           "",
+		ID:           "",
 		started:      false,
 		connected:    false,
 		streaming:    false,
@@ -84,7 +87,12 @@ func (c *StreamClient) Start() error {
 	go c.readEntries()
 
 	// Goroutine to consume streaming entries
-	go c.getStreaming()
+	go func() {
+		err := c.getStreaming()
+		if err != nil {
+			log.Errorf("%s Error while getting streaming: %v", c.ID, err)
+		}
+	}()
 
 	// Flag stared
 	c.started = true
@@ -100,21 +108,21 @@ func (c *StreamClient) connectServer() bool {
 	for !c.connected {
 		c.conn, err = net.Dial("tcp", c.server)
 		if err != nil {
-			log.Infof("Error connecting to server %s: %v", c.server, err)
-			time.Sleep(5 * time.Second) // nolint:gomnd
+			log.Errorf("Error connecting to server %s: %v", c.server, err)
+			time.Sleep(defaultTimeout)
 			continue
 		} else {
 			// Connected
 			c.connected = true
-			c.Id = c.conn.LocalAddr().String()
-			log.Infof("%s Connected to server: %s", c.Id, c.server)
+			c.ID = c.conn.LocalAddr().String()
+			log.Infof("%s Connected to server: %s", c.ID, c.server)
 
 			// Restore streaming
 			if c.streaming {
 				_, _, err = c.execCommand(CmdStart, true, c.nextEntry, nil)
 				if err != nil {
 					c.closeConnection()
-					time.Sleep(5 * time.Second) // nolint:gomnd
+					time.Sleep(defaultTimeout)
 					continue
 				}
 				return true
@@ -129,7 +137,7 @@ func (c *StreamClient) connectServer() bool {
 // closeConnection closes connection to the server
 func (c *StreamClient) closeConnection() {
 	if c.conn != nil {
-		log.Infof("%s Close connection", c.Id)
+		log.Infof("%s Close connection", c.ID)
 		c.conn.Close()
 	}
 	c.connected = false
@@ -172,8 +180,9 @@ func (c *StreamClient) ExecCommandGetBookmark(fromBookmark []byte) (FileEntry, e
 }
 
 // execCommand executes a valid client TCP command with deferred command result possibility
-func (c *StreamClient) execCommand(cmd Command, deferredResult bool, fromEntry uint64, fromBookmark []byte) (HeaderEntry, FileEntry, error) {
-	log.Infof("%s Executing command %d[%s]...", c.Id, cmd, StrCommand[cmd])
+func (c *StreamClient) execCommand(cmd Command, deferredResult bool,
+	fromEntry uint64, fromBookmark []byte) (HeaderEntry, FileEntry, error) {
+	log.Debugf("%s Executing command %d[%s]...", c.ID, cmd, StrCommand[cmd])
 	header := HeaderEntry{}
 	entry := FileEntry{}
 
@@ -185,7 +194,7 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool, fromEntry u
 
 	// Check valid command
 	if !cmd.IsACommand() {
-		log.Errorf("%s Invalid command %d", c.Id, cmd)
+		log.Errorf("%s Invalid command %d", c.ID, cmd)
 		return header, entry, ErrInvalidCommand
 	}
 
@@ -203,14 +212,14 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool, fromEntry u
 	// Send the command parameters
 	switch cmd {
 	case CmdStart:
-		log.Infof("%s ...from entry %d", c.Id, fromEntry)
+		log.Debugf("%s ...from entry %d", c.ID, fromEntry)
 		// Send starting/from entry number
 		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {
 			return header, entry, err
 		}
 	case CmdStartBookmark:
-		log.Infof("%s ...from bookmark [%v]", c.Id, fromBookmark)
+		log.Debugf("%s ...from bookmark [%v]", c.ID, fromBookmark)
 		// Send starting/from bookmark length
 		err = writeFullUint32(uint32(len(fromBookmark)), c.conn)
 		if err != nil {
@@ -222,14 +231,14 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool, fromEntry u
 			return header, entry, err
 		}
 	case CmdEntry:
-		log.Infof("%s ...get entry %d", c.Id, fromEntry)
+		log.Debugf("%s ...get entry %d", c.ID, fromEntry)
 		// Send entry to retrieve
 		err = writeFullUint64(fromEntry, c.conn)
 		if err != nil {
 			return header, entry, err
 		}
 	case CmdBookmark:
-		log.Infof("%s ...get bookmark [%v]", c.Id, fromBookmark)
+		log.Debugf("%s ...get bookmark [%v]", c.ID, fromBookmark)
 		// Send bookmark length
 		err = writeFullUint32(uint32(len(fromBookmark)), c.conn)
 		if err != nil {
@@ -282,7 +291,7 @@ func (c *StreamClient) execCommand(cmd Command, deferredResult bool, fromEntry u
 
 // writeFullUint64 writes to connection a complete uint64
 func writeFullUint64(value uint64, conn net.Conn) error {
-	buffer := make([]byte, 8) // nolint:gomnd
+	buffer := make([]byte, 8) //nolint:mnd
 	binary.BigEndian.PutUint64(buffer, value)
 
 	var err error
@@ -300,7 +309,7 @@ func writeFullUint64(value uint64, conn net.Conn) error {
 
 // writeFullUint32 writes to connection a complete uint32
 func writeFullUint32(value uint32, conn net.Conn) error {
-	buffer := make([]byte, 4) // nolint:gomnd
+	buffer := make([]byte, 4) //nolint:mnd
 	binary.BigEndian.PutUint32(buffer, value)
 
 	var err error
@@ -333,18 +342,11 @@ func writeFullBytes(buffer []byte, conn net.Conn) error {
 
 // readDataEntry reads bytes from server connection and returns a data entry type
 func (c *StreamClient) readDataEntry() (FileEntry, error) {
-	d := FileEntry{}
-
 	// Read the rest of fixed size fields
 	buffer := make([]byte, FixedSizeFileEntry-1)
-	_, err := io.ReadFull(c.conn, buffer)
+	err := c.readContent(buffer)
 	if err != nil {
-		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.Id)
-		} else {
-			log.Errorf("%s Error reading from server: %v", c.Id, err)
-		}
-		return d, err
+		return FileEntry{}, err
 	}
 	packet := []byte{PtData}
 	buffer = append(packet, buffer...)
@@ -352,24 +354,19 @@ func (c *StreamClient) readDataEntry() (FileEntry, error) {
 	// Read variable field (data)
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeFileEntry {
-		log.Errorf("%s Error reading data entry", c.Id)
-		return d, ErrReadingDataEntry
+		log.Errorf("%s Error reading data entry", c.ID)
+		return FileEntry{}, ErrReadingDataEntry
 	}
 
 	bufferAux := make([]byte, length-FixedSizeFileEntry)
-	_, err = io.ReadFull(c.conn, bufferAux)
+	err = c.readContent(bufferAux)
 	if err != nil {
-		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.Id)
-		} else {
-			log.Errorf("%s Error reading from server: %v", c.Id, err)
-		}
-		return d, err
+		return FileEntry{}, err
 	}
-	buffer = append(buffer, bufferAux...)
+	buffer = append(buffer, bufferAux...) //nolint:makezero
 
 	// Decode binary data to data entry struct
-	d, err = DecodeBinaryToFileEntry(buffer)
+	d, err := DecodeBinaryToFileEntry(buffer)
 	if err != nil {
 		return d, err
 	}
@@ -407,18 +404,16 @@ func (c *StreamClient) readHeaderEntry() (HeaderEntry, error) {
 
 // readResultEntry reads bytes from server connection and returns a result entry type
 func (c *StreamClient) readResultEntry() (ResultEntry, error) {
-	e := ResultEntry{}
-
 	// Read the rest of fixed size fields
 	buffer := make([]byte, FixedSizeResultEntry-1)
 	_, err := io.ReadFull(c.conn, buffer)
 	if err != nil {
-		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.Id)
+		if errors.Is(err, io.EOF) {
+			log.Warnf("%s Server close connection", c.ID)
 		} else {
-			log.Errorf("%s Error reading from server: %v", c.Id, err)
+			log.Errorf("%s Error reading from server: %v", c.ID, err)
 		}
-		return e, err
+		return ResultEntry{}, err
 	}
 	packet := []byte{PtResult}
 	buffer = append(packet, buffer...)
@@ -426,29 +421,39 @@ func (c *StreamClient) readResultEntry() (ResultEntry, error) {
 	// Read variable field (errStr)
 	length := binary.BigEndian.Uint32(buffer[1:5])
 	if length < FixedSizeResultEntry {
-		log.Errorf("%s Error reading result entry", c.Id)
-		return e, ErrReadingResultEntry
+		log.Errorf("%s Error reading result entry", c.ID)
+		return ResultEntry{}, ErrReadingResultEntry
 	}
 
 	bufferAux := make([]byte, length-FixedSizeResultEntry)
-	_, err = io.ReadFull(c.conn, bufferAux)
+	err = c.readContent(bufferAux)
 	if err != nil {
-		if err == io.EOF {
-			log.Warnf("%s Server close connection", c.Id)
-		} else {
-			log.Errorf("%s Error reading from server: %v", c.Id, err)
-		}
-		return e, err
+		return ResultEntry{}, err
 	}
-	buffer = append(buffer, bufferAux...)
+	buffer = append(buffer, bufferAux...) //nolint:makezero
 
 	// Decode binary entry result
-	e, err = DecodeBinaryToResultEntry(buffer)
+	e, err := DecodeBinaryToResultEntry(buffer)
 	if err != nil {
 		return e, err
 	}
 	// PrintResultEntry(e)
 	return e, nil
+}
+
+// readContent reads raw content using the connection and places it into buffer parameter
+func (c *StreamClient) readContent(buffer []byte) error {
+	_, err := io.ReadFull(c.conn, buffer)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			log.Warnf("%s Server close connection", c.ID)
+		} else {
+			log.Errorf("%s Error reading from server: %w", c.ID, err)
+		}
+		return err
+	}
+
+	return nil
 }
 
 // readEntries reads from the server all type of packets
@@ -461,13 +466,8 @@ func (c *StreamClient) readEntries() {
 
 		// Read packet type
 		packet := make([]byte, 1)
-		_, err := io.ReadFull(c.conn, packet)
+		err := c.readContent(packet)
 		if err != nil {
-			if err == io.EOF {
-				log.Warnf("%s Server close connection", c.Id)
-			} else {
-				log.Errorf("%s Error reading from server: %v", c.Id, err)
-			}
 			c.closeConnection()
 			continue
 		}
@@ -488,7 +488,7 @@ func (c *StreamClient) readEntries() {
 				r := c.getResult(CmdStart)
 				if r.errorNum != uint32(CmdErrOK) {
 					c.closeConnection()
-					time.Sleep(5 * time.Second) // nolint:gomnd
+					time.Sleep(defaultTimeout)
 					continue
 				}
 			}
@@ -524,7 +524,7 @@ func (c *StreamClient) readEntries() {
 
 		default:
 			// Unknown type
-			log.Warnf("%s Unknown packet type %d", c.Id, packet[0])
+			log.Warnf("%s Unknown packet type %d", c.ID, packet[0])
 			continue
 		}
 	}
@@ -534,26 +534,27 @@ func (c *StreamClient) readEntries() {
 func (c *StreamClient) getResult(cmd Command) ResultEntry {
 	// Get result entry
 	r := <-c.results
-	log.Infof("%s Result %d[%s] received for command %d[%s]", c.Id, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
+	log.Debugf("%s Result %d[%s] received for command %d[%s]", c.ID, r.errorNum, r.errorStr, cmd, StrCommand[cmd])
 	return r
 }
 
 // getHeader consumes a header entry
 func (c *StreamClient) getHeader() HeaderEntry {
 	h := <-c.headers
-	log.Infof("%s Header received info: TotalEntries[%d], TotalLength[%d], Version[%d], SystemID[%d]", c.Id, h.TotalEntries, h.TotalLength, h.Version, h.SystemID)
+	log.Debugf("%s Header received info: TotalEntries[%d], TotalLength[%d], Version[%d], SystemID[%d]",
+		c.ID, h.TotalEntries, h.TotalLength, h.Version, h.SystemID)
 	return h
 }
 
 // getEntry consumes a entry from commands response
 func (c *StreamClient) getEntry() FileEntry {
 	e := <-c.entryRsp
-	log.Infof("%s Entry received info: Number[%d]", c.Id, e.Number)
+	log.Debugf("%s Entry received info: Number[%d]", c.ID, e.Number)
 	return e
 }
 
 // getStreaming consumes streaming data entries
-func (c *StreamClient) getStreaming() {
+func (c *StreamClient) getStreaming() error {
 	for {
 		e := <-c.entries
 		c.nextEntry = e.Number + 1
@@ -561,7 +562,8 @@ func (c *StreamClient) getStreaming() {
 		// Process the data entry
 		err := c.processEntry(&e, c, c.relayServer)
 		if err != nil {
-			log.Fatalf("%s Processing entry %d: %s. HALTED!", c.Id, e.Number, err.Error())
+			log.Errorf("%s Processing entry %d: %s. Exiting getStream function", c.ID, e.Number, err.Error())
+			return err
 		}
 	}
 }
@@ -581,15 +583,26 @@ func (c *StreamClient) SetProcessEntryFunc(f ProcessEntryFunc) {
 	c.setProcessEntryFunc(f, nil)
 }
 
+// ResetProcessEntryFunc resets the callback function to the default one
+func (c *StreamClient) ResetProcessEntryFunc() {
+	// Set default callback function to process entry
+	c.setProcessEntryFunc(PrintReceivedEntry, c.relayServer)
+}
+
 // setProcessEntryFunc sets the callback function to process entry with server parameter
 func (c *StreamClient) setProcessEntryFunc(f ProcessEntryFunc, s *StreamServer) {
 	c.processEntry = f
 	c.relayServer = s
 }
 
+// IsStarted returns if the client is started
+func (c *StreamClient) IsStarted() bool {
+	return c.started
+}
+
 // PrintReceivedEntry prints received entry (default callback function)
 func PrintReceivedEntry(e *FileEntry, c *StreamClient, s *StreamServer) error {
 	// Log data entry fields
-	log.Infof("Data entry(%s): %d | %d | %d | %d", c.Id, e.Number, e.Length, e.Type, len(e.Data))
+	log.Debugf("Data entry(%s): %d | %d | %d | %d", c.ID, e.Number, e.Length, e.Type, len(e.Data))
 	return nil
 }

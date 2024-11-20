@@ -2,6 +2,7 @@ package datastreamer
 
 import (
 	"encoding/binary"
+	"errors"
 
 	"github.com/0xPolygonHermez/zkevm-data-streamer/log"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -55,11 +56,10 @@ func (b *StreamBookmark) AddBookmark(bookmark []byte, entryNum uint64) error {
 func (b *StreamBookmark) GetBookmark(bookmark []byte) (uint64, error) {
 	// Get the bookmark from DB
 	entry, err := b.db.Get(bookmark, nil)
-	if err == leveldb.ErrNotFound {
-		// log.Infof("Bookmark not found [%v]: %v", bookmark, err)
+	if errors.Is(err, leveldb.ErrNotFound) {
 		return 0, err
 	} else if err != nil {
-		log.Errorf("Error getting bookmark [%v]: %v", bookmark, err)
+		log.Errorf("Error getting bookmark [%v]: %w", bookmark, err)
 		return 0, err
 	}
 
@@ -99,7 +99,7 @@ func (b *StreamBookmark) PrintDump() error {
 	iter.Release()
 
 	// Log total
-	log.Infof("Number of bookmarks: [%d]", count)
+	log.Debugf("Number of bookmarks: [%d]", count)
 
 	return err
 }

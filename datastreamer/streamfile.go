@@ -119,7 +119,8 @@ func (f *StreamFile) openCreateFile() error {
 	// Check if file exists (otherwise create it)
 	_, err := os.Stat(f.fileName)
 
-	if os.IsNotExist(err) {
+	switch {
+	case os.IsNotExist(err):
 		// File does not exists so create it
 		log.Infof("Creating new file for datastream: %s", f.fileName)
 		f.file, err = os.Create(f.fileName)
@@ -133,7 +134,7 @@ func (f *StreamFile) openCreateFile() error {
 			}
 			err = f.initializeFile()
 		}
-	} else if err == nil {
+	case err == nil:
 		// File already exists
 		log.Infof("Using existing file for datastream: %s", f.fileName)
 		f.file, err = os.OpenFile(f.fileName, os.O_RDWR, fileMode)
@@ -143,7 +144,7 @@ func (f *StreamFile) openCreateFile() error {
 		}
 
 		err = f.openFileForHeader()
-	} else {
+	default:
 		log.Errorf("Unable to check datastream file status %s: %v", f.fileName, err)
 	}
 
@@ -214,7 +215,7 @@ func (f *StreamFile) initializeFile() error {
 	for i := 1; i <= initPages; i++ {
 		err = f.createPage(f.pageSize)
 		if err != nil {
-			log.Error("Eror creating page")
+			log.Error("Error creating page")
 			return err
 		}
 	}
@@ -233,7 +234,7 @@ func (f *StreamFile) createHeaderPage() error {
 
 	// Update total data length and max file length
 	f.mutexHeader.Lock()
-	f.maxLength = f.maxLength + PageHeaderSize
+	f.maxLength += PageHeaderSize
 	f.header.TotalLength = PageHeaderSize
 	f.mutexHeader.Unlock()
 
@@ -293,7 +294,7 @@ func (f *StreamFile) createPage(size uint32) error {
 	}
 
 	// Update max file length
-	f.maxLength = f.maxLength + uint64(size)
+	f.maxLength += uint64(size)
 
 	return nil
 }
@@ -415,7 +416,7 @@ func encodeHeaderEntryToBinary(e HeaderEntry) []byte {
 	be := make([]byte, 1)
 	be[0] = e.packetType
 	be = binary.BigEndian.AppendUint32(be, e.headLength)
-	be = append(be, e.Version)
+	be = append(be, e.Version) //nolint:makezero
 	be = binary.BigEndian.AppendUint64(be, e.SystemID)
 	be = binary.BigEndian.AppendUint64(be, uint64(e.streamType))
 	be = binary.BigEndian.AppendUint64(be, e.TotalLength)
@@ -450,7 +451,7 @@ func encodeFileEntryToBinary(e FileEntry) []byte {
 	be = binary.BigEndian.AppendUint32(be, e.Length)
 	be = binary.BigEndian.AppendUint32(be, uint32(e.Type))
 	be = binary.BigEndian.AppendUint64(be, e.Number)
-	be = append(be, e.Data...)
+	be = append(be, e.Data...) //nolint:makezero
 	return be
 }
 
@@ -508,20 +509,20 @@ func (f *StreamFile) checkMagicNumbers() error {
 
 // checkHeaderConsistency performs some header struct checks
 func (f *StreamFile) checkHeaderConsistency() error {
-	var err error = nil
-
-	if f.header.packetType != PtHeader {
+	switch {
+	case f.header.packetType != PtHeader:
 		log.Error("Invalid header: bad packet type")
-		err = ErrInvalidHeaderBadPacketType
-	} else if f.header.headLength != headerSize {
-		log.Error("Invalid header: bad header length")
-		err = ErrInvalidHeaderBadHeaderLength
-	} else if f.header.streamType != f.streamType {
-		log.Error("Invalid header: bad stream type")
-		err = ErrInvalidHeaderBadStreamType
-	}
+		return ErrInvalidHeaderBadPacketType
 
-	return err
+	case f.header.headLength != headerSize:
+		log.Error("Invalid header: bad header length")
+		return ErrInvalidHeaderBadHeaderLength
+
+	case f.header.streamType != f.streamType:
+		log.Error("Invalid header: bad stream type")
+		return ErrInvalidHeaderBadStreamType
+	}
+	return nil
 }
 
 // AddFileEntry writes new data entry to the data stream file
@@ -575,11 +576,10 @@ func (f *StreamFile) AddFileEntry(e FileEntry) error {
 
 	// Update the current header in memory (on disk later when the commit arrives)
 	f.mutexHeader.Lock()
-	f.header.TotalLength = f.header.TotalLength + entryLength
-	f.header.TotalEntries = f.header.TotalEntries + 1
+	f.header.TotalLength += entryLength
+	f.header.TotalEntries++
 	f.mutexHeader.Unlock()
 
-	// printHeaderEntry(f.header)
 	return nil
 }
 
@@ -610,7 +610,7 @@ func (f *StreamFile) fillPagePadEntries() error {
 
 		// Update the current header in memory (on disk later when the commit arrives)
 		f.mutexHeader.Lock()
-		f.header.TotalLength = f.header.TotalLength + pageRemaining
+		f.header.TotalLength += pageRemaining
 		f.mutexHeader.Unlock()
 	}
 
@@ -655,7 +655,7 @@ func DecodeBinaryToFileEntry(b []byte) (FileEntry, error) {
 func (f *StreamFile) iteratorFrom(entryNum uint64, readOnly bool) (*iteratorFile, error) {
 	// Check starting entry number
 	if entryNum >= f.writtenHead.TotalEntries {
-		log.Infof("Invalid starting entry number for iterator")
+		log.Error("Invalid starting entry number for iterator")
 		return nil, ErrInvalidEntryNumber
 	}
 
@@ -754,7 +754,7 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 		log.Errorf("Error reading entry for iterator: %v", err)
 		return true, err
 	}
-	buffer = append(packet, buffer...)
+	buffer = append(packet, buffer...) //nolint:makezero
 
 	// Check length
 	length := binary.BigEndian.Uint32(buffer[1:5])
@@ -772,7 +772,7 @@ func (f *StreamFile) iteratorNext(iterator *iteratorFile) (bool, error) {
 			log.Errorf("Error reading data for iterator: %v", err)
 			return true, err
 		}
-		buffer = append(buffer, bufferAux...)
+		buffer = append(buffer, bufferAux...) //nolint:makezero
 	}
 
 	// Convert to data entry struct
@@ -793,16 +793,19 @@ func (f *StreamFile) iteratorEnd(iterator *iteratorFile) {
 // seekEntry uses a file iterator to locate a data entry number using a custom binary search
 func (f *StreamFile) seekEntry(iterator *iteratorFile) error {
 	// Start and end data pages
-	avg := 0
-	beg := 0
-	end := int((f.writtenHead.TotalLength - PageHeaderSize) / PageDataSize)
+	var (
+		avg = 0
+		beg = 0
+		end = int((f.writtenHead.TotalLength - PageHeaderSize) / PageDataSize)
+	)
+
 	if (f.writtenHead.TotalLength-PageHeaderSize)%PageDataSize == 0 {
-		end = end - 1
+		end--
 	}
 
 	// Custom binary search
 	for beg <= end {
-		avg = beg + (end-beg)/2 // nolint:gomnd
+		avg = beg + (end-beg)/2 //nolint:mnd
 
 		// Seek for the start of avg data page
 		newPos := (avg * PageDataSize) + PageHeaderSize
@@ -902,7 +905,7 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	}
 
 	// Seek for the start of next data page
-	_, err = iterator.file.Seek(int64(forward), io.SeekCurrent)
+	_, err = iterator.file.Seek(forward, io.SeekCurrent)
 	if err != nil {
 		log.Errorf("Error seeking next data page: %v", err)
 		return 0, err
@@ -926,7 +929,7 @@ func (f *StreamFile) getFirstEntryOnNextPage(iterator *iteratorFile) (uint64, er
 	entryNum := binary.BigEndian.Uint64(buffer[9:17])
 
 	// Restore file position
-	_, err = iterator.file.Seek(-int64(forward+FixedSizeFileEntry), io.SeekCurrent)
+	_, err = iterator.file.Seek(-(forward + FixedSizeFileEntry), io.SeekCurrent)
 	if err != nil {
 		log.Errorf("Error seeking current pos: %v", err)
 		return 0, err
@@ -1006,7 +1009,8 @@ func (f *StreamFile) updateEntryData(entryNum uint64, etype EntryType, data []by
 	// Check length of data
 	dataLength := iterator.Entry.Length - FixedSizeFileEntry
 	if dataLength != uint32(len(data)) {
-		log.Infof("Updating entry data to a different length not allowed. Current[%d] Update[%d]", dataLength, uint32(len(data)))
+		log.Infof("Updating entry data to a different length not allowed. Current[%d] Update[%d]",
+			dataLength, uint32(len(data)))
 		return ErrUpdateEntryDifferentSize
 	}
 

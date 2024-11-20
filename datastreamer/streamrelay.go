@@ -13,7 +13,9 @@ type StreamRelay struct {
 }
 
 // NewRelay creates a new data stream relay
-func NewRelay(server string, port uint16, version uint8, systemID uint64, streamType StreamType, fileName string, writeTimeout time.Duration, cfg *log.Config) (*StreamRelay, error) {
+func NewRelay(server string, port uint16, version uint8, systemID uint64,
+	streamType StreamType, fileName string, writeTimeout time.Duration,
+	inactivityTimeout time.Duration, inactivityCheckInterval time.Duration, cfg *log.Config) (*StreamRelay, error) {
 	var r StreamRelay
 	var err error
 
@@ -25,7 +27,8 @@ func NewRelay(server string, port uint16, version uint8, systemID uint64, stream
 	}
 
 	// Create server side
-	r.server, err = NewServer(port, version, systemID, streamType, fileName, writeTimeout, cfg)
+	r.server, err = NewServer(port, version, systemID, streamType, fileName, writeTimeout,
+		inactivityTimeout, inactivityCheckInterval, cfg)
 	if err != nil {
 		log.Errorf("Error creating relay server side: %v", err)
 		return nil, err
