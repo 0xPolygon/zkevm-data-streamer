@@ -336,9 +336,17 @@ func (s *StreamServer) handleConnection(conn net.Conn) {
 			return
 		}
 
+		// Check if the client is nil
+		safeClient := s.getSafeClient(clientID)
+		if safeClient == nil {
+			log.Errorf("Client %s is nil", clientID)
+			s.killClient(clientID)
+			return
+		}
+
 		// Manage the requested command
 		log.Debugf("Command %d[%s] received from %s", command, StrCommand[Command(command)], clientID)
-		err = s.processCommand(Command(command), s.getSafeClient(clientID))
+		err = s.processCommand(Command(command), safeClient)
 		if err != nil {
 			log.Errorf("Error processing command %d[%s] from %s: %v", command, StrCommand[Command(command)], clientID, err)
 		}
