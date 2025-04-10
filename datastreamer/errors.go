@@ -77,6 +77,8 @@ var (
 	ErrStartCommandInvalidParamFromEntry = fmt.Errorf("start command invalid param from entry")
 	// ErrStartBookmarkInvalidParamFromBookmark is returned when the start bookmark is invalid, param from bookmark
 	ErrStartBookmarkInvalidParamFromBookmark = fmt.Errorf("start bookmark invalid param from bookmark")
+	// ErrEndBookmarkInvalidParamToBookmark is returned when the end bookmark is invalid, param to bookmark
+	ErrEndBookmarkInvalidParamToBookmark = fmt.Errorf("end bookmark invalid param to bookmark")
 	// ErrInvalidBinaryResultEntry is returned when the binary result entry is invalid
 	ErrInvalidBinaryResultEntry = fmt.Errorf("invalid binary result entry")
 	// ErrDecodingBinaryResultEntry is returned when there is an error decoding binary result entry
