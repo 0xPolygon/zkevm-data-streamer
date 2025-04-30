@@ -50,6 +50,7 @@ const (
 	CmdStartBookmark                    // CmdStartBookmark for the start from bookmark TCP client command
 	CmdEntry                            // CmdEntry for the get entry TCP client command
 	CmdBookmark                         // CmdBookmark for the get bookmark TCP client command
+	CmdRangeBookmark                    // CmdRangeBookmark for the start and end bookmarks TCP client command
 )
 
 const (
@@ -58,6 +59,7 @@ const (
 	CmdErrAlreadyStopped                      // CmdErrAlreadyStopped for client already stopped error
 	CmdErrBadFromEntry                        // CmdErrBadFromEntry for invalid starting entry number
 	CmdErrBadFromBookmark                     // CmdErrBadFromBookmark for invalid starting bookmark
+	CmdErrBadToBookmark                       // CmdErrBadToBookmark for invalid to bookmark
 	CmdErrInvalidCommand  CommandError = 9    // CmdErrInvalidCommand for invalid/unknown command error
 )
 
@@ -94,6 +96,7 @@ var (
 		CmdStartBookmark: "StartBookmark",
 		CmdEntry:         "Entry",
 		CmdBookmark:      "Bookmark",
+		CmdRangeBookmark: "CmdRangeBookmark",
 	}
 
 	// StrCommandErrors for TCP command errors description
@@ -103,6 +106,7 @@ var (
 		CmdErrAlreadyStopped:  "Already stopped",
 		CmdErrBadFromEntry:    "Bad from entry",
 		CmdErrBadFromBookmark: "Bad from bookmark",
+		CmdErrBadToBookmark:   "Bad to bookmark",
 		CmdErrInvalidCommand:  "Invalid command",
 	}
 )
@@ -780,6 +784,9 @@ func (s *StreamServer) processCommand(command Command, client *client) error {
 	case CmdBookmark:
 		err = s.handleBookmarkCommand(cli)
 
+	case CmdRangeBookmark:
+		err = s.handleRangeBookmarkCommand(cli)
+
 	default:
 		log.Error("Invalid command!")
 		err = ErrInvalidCommand
@@ -818,6 +825,23 @@ func (s *StreamServer) handleStartBookmarkCommand(cli *client) error {
 	err := s.processCmdStartBookmark(cli)
 	if err == nil {
 		cli.status = csSynced
+	}
+
+	return err
+}
+
+// handleRangeBookmarkCommand processes the CmdRangeBookmark command
+func (s *StreamServer) handleRangeBookmarkCommand(cli *client) error {
+	if cli.status != csStopped {
+		log.Error("Stream to client already started!")
+		_ = s.sendResultEntry(uint32(CmdErrAlreadyStarted), StrCommandErrors[CmdErrAlreadyStarted], cli)
+		return ErrClientAlreadyStarted
+	}
+
+	cli.status = csSyncing
+	err := s.processCmdRangeBookmark(cli)
+	if err == nil {
+		cli.status = csStopped
 	}
 
 	return err
@@ -948,6 +972,51 @@ func (s *StreamServer) processCmdStartBookmark(client *client) error {
 	}
 
 	return err
+}
+
+func (s *StreamServer) processCmdRangeBookmark(client *client) error {
+	// Read start and end bookmark parameter
+	sb, err := readBookmark(client)
+	if err != nil {
+		return err
+	}
+	eb, err := readBookmark(client)
+	if err != nil {
+		return err
+	}
+	log.Debugf("Client %s command RangeBookmark start: [%v], end [%v]", client.clientID, sb, eb)
+
+	from, err := s.bookmark.GetBookmark(sb)
+	if err != nil {
+		log.Errorf("RangeBookmark command invalid start bookmark %v for client %s: %v", sb, client.clientID, err)
+		err = ErrStartBookmarkInvalidParamFromBookmark
+		_ = s.sendResultEntry(uint32(CmdErrBadFromBookmark), StrCommandErrors[CmdErrBadFromBookmark], client)
+		return err
+	}
+	to, err := s.bookmark.GetBookmark(eb)
+	if err != nil || to == 0 {
+		log.Errorf("RangeBookmark command invalid end bookmark %v for client %s: %v", eb, client.clientID, err)
+		err = ErrEndBookmarkInvalidParamToBookmark
+		_ = s.sendResultEntry(uint32(CmdErrBadToBookmark), StrCommandErrors[CmdErrBadToBookmark], client)
+		return err
+	}
+
+	// Send a command result entry OK
+	err = s.sendResultEntry(0, "OK", client)
+	if err != nil {
+		return err
+	}
+
+	// Send toEntry
+	be := make([]byte, 8)
+	binary.BigEndian.PutUint64(be, to)
+	TimeoutWrite(client, be, s.writeTimeout)
+
+	if from >= s.nextEntry || to >= s.nextEntry {
+		return ErrInvalidBookmarkRange
+	}
+
+	return s.streamingRangeEntry(client, from, to)
 }
 
 // processCmdStop processes the TCP Stop command from the clients
@@ -1129,6 +1198,53 @@ func (s *StreamServer) streamingFromEntry(client *client, fromEntry uint64) erro
 	return nil
 }
 
+// streamingRangeEntry streams the range of file entries until toEntry bookmark (excluding)
+func (s *StreamServer) streamingRangeEntry(client *client, fromEntry uint64, toEntry uint64) error {
+	if fromEntry > toEntry {
+		return ErrInvalidBookmarkRange
+	}
+
+	log.Debugf("SYNCING %s from entry %d to entry %d...", client.clientID, fromEntry, toEntry)
+
+	// Start file stream iterator
+	iterator, err := s.streamFile.iteratorFrom(fromEntry, true)
+	if err != nil {
+		return err
+	}
+
+	// Loop until we reach the to bookmark
+	for {
+		// Get next entry data
+		end, err := s.streamFile.iteratorNext(iterator)
+		if err != nil || end {
+			break
+		}
+
+		// Send the file data entry
+		binaryEntry := encodeFileEntryToBinary(iterator.Entry)
+		log.Debugf("Sending data entry %d (type %d) to %s", iterator.Entry.Number, iterator.Entry.Type, client.clientID)
+		if client.conn != nil {
+			_, err = TimeoutWrite(client, binaryEntry, s.writeTimeout)
+		} else {
+			err = ErrNilConnection
+		}
+		if err != nil {
+			log.Errorf("Error sending entry %d to %s: %v", iterator.Entry.Number, client.clientID, err)
+			return err
+		}
+
+		if iterator.Entry.Number == toEntry {
+			break
+		}
+	}
+	log.Debugf("Synced %s until %d!", client.clientID, iterator.Entry.Number)
+
+	// Close iterator
+	s.streamFile.iteratorEnd(iterator)
+
+	return nil
+}
+
 // sendResultEntry sends the response to a TCP command for the clients
 func (s *StreamServer) sendResultEntry(errorNum uint32, errorStr string, client *client) error {
 	// Prepare the result entry
@@ -1177,6 +1293,29 @@ func (s *StreamServer) BookmarkPrintDump() {
 	if err != nil {
 		log.Errorf("Error dumping bookmark database")
 	}
+}
+
+func readBookmark(client *client) ([]byte, error) {
+	// Read bookmark length parameter
+	length, err := readFullUint32(client)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check maximum length allowed
+	if length > maxBookmarkLength {
+		log.Errorf("Client %s exceeded [%d] maximum allowed length [%d] for a bookmark.",
+			client.clientID, length, maxBookmarkLength)
+		return nil, ErrBookmarkMaxLength
+	}
+
+	// Read start bookmark parameter
+	bookmark, err := readFullBytes(length, client)
+	if err != nil {
+		return nil, err
+	}
+
+	return bookmark, nil
 }
 
 // readFullUint64 reads from a connection a complete uint64
