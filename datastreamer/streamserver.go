@@ -696,9 +696,15 @@ func (s *StreamServer) broadcastAtomicOp() {
 		var killedClientMap = map[string]struct{}{}
 		var clientMap = map[string]struct{}{}
 		s.mutexClients.RLock()
-		// For each connected and started client
-		log.Debug("sending datastream entries, count: %d, clients: %d", len(broadcastOp.entries), len(s.clients))
+		clientsSnapshot := make(map[string]*client, len(s.clients))
 		for id, cli := range s.clients {
+			clientsSnapshot[id] = cli
+		}
+		s.mutexClients.RUnlock()
+
+		// For each connected and started client
+		log.Debug("sending datastream entries, count: %d, clients: %d", len(broadcastOp.entries), len(clientsSnapshot))
+		for id, cli := range clientsSnapshot {
 			log.Debugf("client %s status %d (%s)", id, cli.status, StrClientStatus[cli.status])
 			clientMap[id] = struct{}{}
 			if cli.status != csSynced {
@@ -727,7 +733,6 @@ func (s *StreamServer) broadcastAtomicOp() {
 				}
 			}
 		}
-		s.mutexClients.RUnlock()
 
 		for k := range killedClientMap {
 			s.killClient(k)
@@ -743,7 +748,7 @@ func (s *StreamServer) broadcastAtomicOp() {
 		}
 
 		log.Debugf("sent datastream entries, count: %d, clients: %d, time: %v, clients-ip: {%s}",
-			len(broadcastOp.entries), len(s.clients), time.Since(start), sClients)
+			len(broadcastOp.entries), len(clientsSnapshot), time.Since(start), sClients)
 	}
 }
 
@@ -752,8 +757,12 @@ func (s *StreamServer) killClient(clientID string) {
 	s.mutexClients.Lock()
 	defer s.mutexClients.Unlock()
 
-	client := s.clients[clientID]
-	if client != nil && client.status != csKilled {
+	client, ok := s.clients[clientID]
+	if !ok {
+		return
+	}
+
+	if client.status != csKilled {
 		client.status = csKilled
 		if client.conn != nil {
 			client.conn.Close()
